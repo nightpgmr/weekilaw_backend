@@ -149,7 +149,7 @@ export default function AdminHub({ tab, users, roles, permissions }: PageProps) 
         <AppLayout breadcrumbs={[{ title: 'Admin Hub', href: '/admin/hub' }]}>
             <Head title="Admin Hub" />
 
-            <div className="flex items-start justify-between gap-4 px-6 pt-6">
+            <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4 mb-2">
                 <div>
                     <h1 className="text-2xl font-semibold">{pageTitle}</h1>
                     {flash.success && (

@@ -1,5 +1,8 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { useState } from 'react';
+import AppLayout from '@/layouts/app-layout';
+import { dashboard } from '@/routes';
+import { type BreadcrumbItem } from '@/types';
 import {
     Dialog,
     DialogContent,
@@ -26,39 +29,32 @@ type PageProps = {
     permissions: Permission[];
 };
 
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Dashboard', href: dashboard().url },
+    { title: 'Roles', href: '/admin/roles' },
+];
+
 export default function Roles({ roles, permissions }: PageProps) {
     const { props } = usePage();
     const flash = (props as any).flash || {};
     const [open, setOpen] = useState(false);
+    const [rolePerms, setRolePerms] = useState<Record<number, string[]>>(
+        () =>
+            roles.reduce((acc, role) => {
+                acc[role.id] = role.permissions.map((p) => p.slug);
+                return acc;
+            }, {} as Record<number, string[]>),
+    );
 
     const createForm = useForm({
         name: '',
         slug: '',
     });
 
-    const permissionForms = useMemo(
-        () =>
-            roles.reduce((acc, role) => {
-                acc[role.id] = useForm({
-                    permissions: role.permissions.map((p) => p.slug),
-                });
-                return acc;
-            }, {} as Record<number, ReturnType<typeof useForm>>),
-        [roles],
-    );
-
-    const deleteForms = useMemo(
-        () =>
-            roles.reduce((acc, role) => {
-                acc[role.id] = useForm({});
-                return acc;
-            }, {} as Record<number, ReturnType<typeof useForm>>),
-        [roles],
-    );
-
     return (
-        <div className="space-y-4 p-6">
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Roles" />
+        <div className="space-y-4 p-6">
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-semibold">Roles</h1>
@@ -90,7 +86,7 @@ export default function Roles({ roles, permissions }: PageProps) {
                             className="space-y-3"
                             onSubmit={(e) => {
                                 e.preventDefault();
-                                createForm.post(route('admin.roles.store'), {
+                                router.post('/admin/roles', createForm.data, {
                                     onSuccess: () => {
                                         setOpen(false);
                                         createForm.reset();
@@ -152,13 +148,12 @@ export default function Roles({ roles, permissions }: PageProps) {
                                     onSubmit={(e) => {
                                         e.preventDefault();
                                         if (!confirm(`Delete role ${role.name}?`)) return;
-                                        deleteForms[role.id].delete(route('admin.roles.destroy', role.id));
+                                        router.delete(`/admin/roles/${role.id}`);
                                     }}
                                 >
                                     <button
                                         type="submit"
                                         className="rounded-md bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-200 disabled:opacity-60"
-                                        disabled={deleteForms[role.id].processing}
                                     >
                                         Delete
                                     </button>
@@ -172,7 +167,9 @@ export default function Roles({ roles, permissions }: PageProps) {
                                 className="space-y-2"
                                 onSubmit={(e) => {
                                     e.preventDefault();
-                                    permissionForms[role.id].post(route('admin.roles.permissions', role.id));
+                                    router.post(`/admin/roles/${role.id}/permissions`, {
+                                        permissions: rolePerms[role.id] ?? [],
+                                    });
                                 }}
                             >
                                 <div className="grid gap-2 sm:grid-cols-2">
@@ -183,21 +180,19 @@ export default function Roles({ roles, permissions }: PageProps) {
                                         >
                                             <input
                                                 type="checkbox"
-                                                checked={permissionForms[role.id].data.permissions.includes(
-                                                    perm.slug,
-                                                )}
+                                                checked={(rolePerms[role.id] ?? []).includes(perm.slug)}
                                                 onChange={(e) => {
-                                                    const current = permissionForms[role.id].data.permissions;
+                                                    const current = rolePerms[role.id] ?? [];
                                                     if (e.target.checked) {
-                                                        permissionForms[role.id].setData('permissions', [
-                                                            ...current,
-                                                            perm.slug,
-                                                        ]);
+                                                        setRolePerms((prev) => ({
+                                                            ...prev,
+                                                            [role.id]: Array.from(new Set([...current, perm.slug])),
+                                                        }));
                                                     } else {
-                                                        permissionForms[role.id].setData(
-                                                            'permissions',
-                                                            current.filter((p: string) => p !== perm.slug),
-                                                        );
+                                                        setRolePerms((prev) => ({
+                                                            ...prev,
+                                                            [role.id]: current.filter((p) => p !== perm.slug),
+                                                        }));
                                                     }
                                                 }}
                                             />
@@ -208,7 +203,6 @@ export default function Roles({ roles, permissions }: PageProps) {
                                 <button
                                     type="submit"
                                     className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-                                    disabled={permissionForms[role.id].processing}
                                 >
                                     Save permissions
                                 </button>
@@ -223,6 +217,7 @@ export default function Roles({ roles, permissions }: PageProps) {
                 )}
             </div>
         </div>
+        </AppLayout>
     );
 }
 

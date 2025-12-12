@@ -3,6 +3,9 @@
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Laravel\Fortify\Features;
+use App\Models\User;
+use App\Models\Role;
+use App\Models\Permission;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
@@ -26,7 +29,46 @@ Route::get('/home', function () {
 
 Route::middleware(['auth', 'verified', 'admin'])->group(function () {
     Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
+        $connection = config('database.default');
+        $database = config("database.connections.{$connection}.database");
+        $host = config("database.connections.{$connection}.host");
+
+        $userCounts = [
+            'total' => User::count(),
+            'admins' => User::where('role', 'admin')->count(),
+            'super_admins' => User::where('role', 'super_admin')->count(),
+            'clients' => User::where('role', 'client')->count(),
+        ];
+
+        $stats = [
+            'counts' => [
+                'users' => $userCounts['total'],
+                'admins' => $userCounts['admins'],
+                'super_admins' => $userCounts['super_admins'],
+                'clients' => $userCounts['clients'],
+                'roles' => Role::count(),
+                'permissions' => Permission::count(),
+            ],
+            'db' => [
+                'connection' => $connection,
+                'database' => $database,
+                'host' => $host,
+            ],
+        ];
+
+        return Inertia::render('dashboard', [
+            'stats' => $stats,
+            'recentUsers' => User::latest()
+                ->limit(5)
+                ->get(['id', 'name', 'email', 'role', 'created_at']),
+            'recentRoles' => Role::withCount('permissions')
+                ->latest()
+                ->limit(5)
+                ->get(['id', 'name', 'slug', 'created_at']),
+            'recentPermissions' => Permission::latest()
+                ->limit(5)
+                ->get(['id', 'name', 'slug', 'created_at']),
+        ]);
     })->name('dashboard');
 });
 
@@ -58,6 +100,6 @@ Route::middleware(['auth', 'verified', 'superadmin'])
         Route::delete('permissions/{permission}', [PermissionController::class, 'destroy'])->name('permissions.destroy');
 
         Route::get('hub', [AdminHubController::class, 'index'])->name('hub');
-    });
+});
 
 require __DIR__.'/settings.php';

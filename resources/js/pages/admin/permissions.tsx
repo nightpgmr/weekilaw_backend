@@ -1,5 +1,8 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { Head, useForm, usePage, router } from '@inertiajs/react';
+import { useState } from 'react';
+import AppLayout from '@/layouts/app-layout';
+import { dashboard } from '@/routes';
+import { type BreadcrumbItem } from '@/types';
 import {
     Dialog,
     DialogContent,
@@ -18,6 +21,11 @@ type PageProps = {
     permissions: Permission[];
 };
 
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Dashboard', href: dashboard().url },
+    { title: 'Permissions', href: '/admin/permissions' },
+];
+
 export default function Permissions({ permissions }: PageProps) {
     const { props } = usePage();
     const flash = (props as any).flash || {};
@@ -28,18 +36,10 @@ export default function Permissions({ permissions }: PageProps) {
         slug: '',
     });
 
-    const deleteForms = useMemo(
-        () =>
-            permissions.reduce((acc, perm) => {
-                acc[perm.id] = useForm({});
-                return acc;
-            }, {} as Record<number, ReturnType<typeof useForm>>),
-        [permissions],
-    );
-
     return (
-        <div className="space-y-4 p-6">
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Permissions" />
+        <div className="space-y-4 p-6">
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-semibold">Permissions</h1>
@@ -69,7 +69,7 @@ export default function Permissions({ permissions }: PageProps) {
                             className="space-y-3"
                             onSubmit={(e) => {
                                 e.preventDefault();
-                                createForm.post(route('admin.permissions.store'), {
+                                router.post('/admin/permissions', createForm.data, {
                                     onSuccess: () => {
                                         setOpen(false);
                                         createForm.reset();
@@ -129,13 +129,12 @@ export default function Permissions({ permissions }: PageProps) {
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 if (!confirm(`Delete permission ${perm.name}?`)) return;
-                                deleteForms[perm.id].delete(route('admin.permissions.destroy', perm.id));
+                                router.delete(`/admin/permissions/${perm.id}`);
                             }}
                         >
                             <button
                                 type="submit"
                                 className="rounded-md bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-200 disabled:opacity-60"
-                                disabled={deleteForms[perm.id].processing}
                             >
                                 Delete
                             </button>
@@ -149,6 +148,7 @@ export default function Permissions({ permissions }: PageProps) {
                 )}
             </div>
         </div>
+        </AppLayout>
     );
 }
 

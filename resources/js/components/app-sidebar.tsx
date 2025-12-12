@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, Users } from 'lucide-react';
+import { Key, LayoutGrid, Shield, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -34,18 +34,18 @@ export function AppSidebar() {
             ? [
                   {
                       title: 'Users',
-                      href: '/admin/hub?tab=users',
+                      href: '/admin/users',
                       icon: Users,
                   },
                   {
                       title: 'Roles',
-                      href: '/admin/hub?tab=roles',
-                      icon: Folder,
+                      href: '/admin/roles',
+                      icon: Shield,
                   },
                   {
                       title: 'Permissions',
-                      href: '/admin/hub?tab=permissions',
-                      icon: BookOpen,
+                      href: '/admin/permissions',
+                      icon: Key,
                   },
               ]
             : []),
