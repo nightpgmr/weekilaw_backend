@@ -62,7 +62,7 @@ jobs:
     - name: Sync files to server
       uses: burnett01/rsync-deployments@6.0.0
       with:
-        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage/logs' --exclude='storage/framework/cache/data' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github'
+        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage' --exclude='bootstrap/cache' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github'
         path: .
         remote_path: /var/www/weekilaw-backend
         remote_host: ${{ secrets.SSH_HOST }}
