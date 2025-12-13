@@ -10,6 +10,9 @@ use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\AdminHubController;
+use App\Http\Controllers\Admin\BackupController;
+use App\Models\FeatureFlag;
+use Illuminate\Http\Request;
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -100,6 +103,25 @@ Route::middleware(['auth', 'verified', 'superadmin'])
         Route::delete('permissions/{permission}', [PermissionController::class, 'destroy'])->name('permissions.destroy');
 
         Route::get('hub', [AdminHubController::class, 'index'])->name('hub');
+        Route::get('under-construction', function () {
+            $flag = FeatureFlag::firstOrCreate(['key' => 'under_construction'], ['enabled' => true]);
+
+            return Inertia::render('admin/under-construction', [
+                'enabled' => $flag->enabled,
+            ]);
+        })->name('under-construction');
+        Route::post('under-construction/toggle', function (Request $request) {
+            $flag = FeatureFlag::firstOrCreate(['key' => 'under_construction'], ['enabled' => true]);
+            $flag->update(['enabled' => $request->boolean('enabled')]);
+
+            return back()->with('success', 'Under construction flag updated.');
+        })->name('under-construction.toggle');
+        Route::get('backup-restore', function () {
+            return Inertia::render('admin/backup-restore');
+        })->name('backup-restore');
+        Route::post('backup', [BackupController::class, 'create'])->name('backup.create');
+        Route::get('backup/download', [BackupController::class, 'download'])->name('backup.download');
+        Route::post('backup/restore', [BackupController::class, 'restore'])->name('backup.restore');
 });
 
 require __DIR__.'/settings.php';

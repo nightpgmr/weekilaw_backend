@@ -45,6 +45,7 @@ export default function Roles({ roles, permissions }: PageProps) {
                 return acc;
             }, {} as Record<number, string[]>),
     );
+    const [savingPerms, setSavingPerms] = useState<Record<number, boolean>>({});
 
     const createForm = useForm({
         name: '',
@@ -167,9 +168,15 @@ export default function Roles({ roles, permissions }: PageProps) {
                                 className="space-y-2"
                                 onSubmit={(e) => {
                                     e.preventDefault();
-                                    router.post(`/admin/roles/${role.id}/permissions`, {
-                                        permissions: rolePerms[role.id] ?? [],
-                                    });
+                                    setSavingPerms((prev) => ({ ...prev, [role.id]: true }));
+                                    router.post(
+                                        `/admin/roles/${role.id}/permissions`,
+                                        { permissions: rolePerms[role.id] ?? [] },
+                                        {
+                                            onFinish: () =>
+                                                setSavingPerms((prev) => ({ ...prev, [role.id]: false })),
+                                        },
+                                    );
                                 }}
                             >
                                 <div className="grid gap-2 sm:grid-cols-2">
@@ -203,8 +210,9 @@ export default function Roles({ roles, permissions }: PageProps) {
                                 <button
                                     type="submit"
                                     className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                                    disabled={savingPerms[role.id]}
                                 >
-                                    Save permissions
+                                    {savingPerms[role.id] ? 'Saving...' : 'Save permissions'}
                                 </button>
                             </form>
                         </div>

@@ -30,8 +30,15 @@ export default function Permissions({ permissions }: PageProps) {
     const { props } = usePage();
     const flash = (props as any).flash || {};
     const [open, setOpen] = useState(false);
+    const [editOpen, setEditOpen] = useState(false);
+    const [editTarget, setEditTarget] = useState<Permission | null>(null);
 
     const createForm = useForm({
+        name: '',
+        slug: '',
+    });
+
+    const editForm = useForm({
         name: '',
         slug: '',
     });
@@ -113,6 +120,62 @@ export default function Permissions({ permissions }: PageProps) {
                         </form>
                     </DialogContent>
                 </Dialog>
+
+                <Dialog open={editOpen} onOpenChange={setEditOpen}>
+                    <DialogContent className="max-w-lg">
+                        <DialogHeader>
+                            <DialogTitle>Edit permission</DialogTitle>
+                        </DialogHeader>
+                        <form
+                            className="space-y-3"
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                if (!editTarget) return;
+                                router.patch(`/admin/permissions/${editTarget.id}`, editForm.data, {
+                                    onSuccess: () => {
+                                        setEditOpen(false);
+                                        setEditTarget(null);
+                                        editForm.reset();
+                                    },
+                                });
+                            }}
+                        >
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium">Name</label>
+                                <input
+                                    className="w-full rounded-md border px-3 py-2 text-sm"
+                                    value={editForm.data.name}
+                                    onChange={(e) => editForm.setData('name', e.target.value)}
+                                    required
+                                />
+                                {editForm.errors.name && (
+                                    <p className="text-xs text-rose-600">{editForm.errors.name}</p>
+                                )}
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium">Slug</label>
+                                <input
+                                    className="w-full rounded-md border px-3 py-2 text-sm"
+                                    value={editForm.data.slug}
+                                    onChange={(e) => editForm.setData('slug', e.target.value)}
+                                    required
+                                />
+                                {editForm.errors.slug && (
+                                    <p className="text-xs text-rose-600">{editForm.errors.slug}</p>
+                                )}
+                            </div>
+                            <div className="flex justify-end">
+                                <button
+                                    type="submit"
+                                    className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                                    disabled={editForm.processing}
+                                >
+                                    {editForm.processing ? 'Saving...' : 'Save changes'}
+                                </button>
+                            </div>
+                        </form>
+                    </DialogContent>
+                </Dialog>
             </div>
 
             <div className="space-y-2">
@@ -125,20 +188,36 @@ export default function Permissions({ permissions }: PageProps) {
                             <p className="text-sm font-semibold">{perm.name}</p>
                             <p className="text-xs text-muted-foreground">{perm.slug}</p>
                         </div>
-                        <form
-                            onSubmit={(e) => {
-                                e.preventDefault();
-                                if (!confirm(`Delete permission ${perm.name}?`)) return;
-                                router.delete(`/admin/permissions/${perm.id}`);
-                            }}
-                        >
+                        <div className="flex items-center gap-2">
                             <button
-                                type="submit"
-                                className="rounded-md bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-200 disabled:opacity-60"
+                                type="button"
+                                className="rounded-md bg-muted px-2 py-1 text-xs font-medium hover:bg-muted/80"
+                                onClick={() => {
+                                    setEditTarget(perm);
+                                    editForm.setData({
+                                        name: perm.name,
+                                        slug: perm.slug,
+                                    });
+                                    setEditOpen(true);
+                                }}
                             >
-                                Delete
+                                Edit
                             </button>
-                        </form>
+                            <form
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    if (!confirm(`Delete permission ${perm.name}?`)) return;
+                                    router.delete(`/admin/permissions/${perm.id}`);
+                                }}
+                            >
+                                <button
+                                    type="submit"
+                                    className="rounded-md bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-200 disabled:opacity-60"
+                                >
+                                    Delete
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 ))}
                 {permissions.length === 0 && (

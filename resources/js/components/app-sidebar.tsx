@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { Key, LayoutGrid, Shield, Users } from 'lucide-react';
+import { Database, Hammer, Key, LayoutGrid, Shield, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -46,6 +46,16 @@ export function AppSidebar() {
                       title: 'Permissions',
                       href: '/admin/permissions',
                       icon: Key,
+                  },
+                  {
+                      title: 'Under Construction',
+                      href: '/admin/under-construction',
+                      icon: Hammer,
+                  },
+                  {
+                      title: 'Backup & Restore',
+                      href: '/admin/backup-restore',
+                      icon: Database,
                   },
               ]
             : []),
