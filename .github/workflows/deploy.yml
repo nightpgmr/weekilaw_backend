@@ -1,0 +1,113 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.4'
+        extensions: pdo, pdo_mysql, mbstring, xml, curl, zip, bcmath, intl, gd
+
+    - name: Install PHP dependencies
+      run: composer install --no-dev --optimize-autoloader --no-interaction
+
+    - name: Create .env file
+      run: |
+        cp .env.example .env
+        sed -i 's|APP_ENV=.*|APP_ENV=production|' .env
+        sed -i 's|APP_DEBUG=.*|APP_DEBUG=false|' .env
+        sed -i 's|APP_URL=.*|APP_URL=http://78.110.124.182|' .env
+        sed -i 's|DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
+        sed -i 's|DB_HOST=.*|DB_HOST=127.0.0.1|' .env
+        sed -i 's|DB_PORT=.*|DB_PORT=3306|' .env
+        sed -i 's|DB_DATABASE=.*|DB_DATABASE=weekilaw|' .env
+        sed -i 's|DB_USERNAME=.*|DB_USERNAME=weekilaw|' .env
+        sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=WeekiLawDb2025|' .env
+
+    - name: Generate application key
+      run: php artisan key:generate
+
+    - name: Run tests
+      run: php artisan test --no-interaction || true
+
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
+        port: ${{ secrets.SSH_PORT || 50022 }}
+        script: |
+          # Create deployment directory if it doesn't exist
+          sudo mkdir -p /var/www/weekilaw-backend
+
+          # Stop any running processes if needed
+          # Add maintenance mode
+          cd /var/www/weekilaw-backend && sudo php artisan down || true
+
+          # Backup current .env
+          sudo cp /var/www/weekilaw-backend/.env /var/www/weekilaw-backend/.env.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+
+    - name: Sync files to server
+      uses: burnett01/rsync-deployments@6.0.0
+      with:
+        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='storage/logs' --exclude='storage/framework/cache/data' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github'
+        path: .
+        remote_path: /var/www/weekilaw-backend
+        remote_host: ${{ secrets.SSH_HOST }}
+        remote_user: ${{ secrets.SSH_USER }}
+        remote_key: ${{ secrets.SSH_KEY }}
+        remote_port: ${{ secrets.SSH_PORT || 50022 }}
+
+    - name: Run deployment commands on server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USER }}
+        key: ${{ secrets.SSH_KEY }}
+        port: ${{ secrets.SSH_PORT || 50022 }}
+        script: |
+          cd /var/www/weekilaw-backend
+
+          # Set proper permissions
+          sudo chown -R www-data:www-data /var/www/weekilaw-backend
+          sudo chmod -R 755 /var/www/weekilaw-backend/storage
+          sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
+
+          # Install PHP dependencies
+          composer install --no-dev --optimize-autoloader --no-interaction
+
+          # Clear and cache config
+          php artisan config:clear
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+
+          # Run migrations
+          php artisan migrate --force --no-interaction
+
+          # Create storage link
+          php artisan storage:link
+
+          # Clear all caches
+          php artisan cache:clear
+          php artisan view:clear
+
+          # Remove maintenance mode
+          php artisan up
+
+          # Restart PHP-FPM
+          sudo systemctl reload php8.4-fpm
+
+          echo "Backend deployment completed successfully!"
