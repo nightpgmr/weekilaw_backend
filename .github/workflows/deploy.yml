@@ -27,7 +27,7 @@ jobs:
         cp .env.example .env
         sed -i 's|APP_ENV=.*|APP_ENV=production|' .env
         sed -i 's|APP_DEBUG=.*|APP_DEBUG=false|' .env
-        sed -i 's|APP_URL=.*|APP_URL=http://78.110.124.182|' .env
+        sed -i 's|APP_URL=.*|APP_URL=https://panel.weekila.com|' .env
         sed -i 's|DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
         sed -i 's|DB_HOST=.*|DB_HOST=127.0.0.1|' .env
         sed -i 's|DB_PORT=.*|DB_PORT=3306|' .env
@@ -50,14 +50,13 @@ jobs:
         port: ${{ secrets.SSH_PORT || 50022 }}
         script: |
           # Create deployment directory if it doesn't exist
-          sudo mkdir -p /var/www/weekilaw-backend
+          mkdir -p /var/www/weekilaw-backend
 
-          # Stop any running processes if needed
-          # Add maintenance mode
-          cd /var/www/weekilaw-backend && sudo php artisan down || true
+          # Stop any running processes if needed (requires sudo - may fail)
+          cd /var/www/weekilaw-backend && php artisan down 2>/dev/null || true
 
-          # Backup current .env
-          sudo cp /var/www/weekilaw-backend/.env /var/www/weekilaw-backend/.env.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+          # Backup current .env (if exists)
+          cp /var/www/weekilaw-backend/.env /var/www/weekilaw-backend/.env.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
 
     - name: Sync files to server
       uses: burnett01/rsync-deployments@6.0.0
@@ -80,10 +79,10 @@ jobs:
         script: |
           cd /var/www/weekilaw-backend
 
-          # Set proper permissions
-          sudo chown -R www-data:www-data /var/www/weekilaw-backend
-          sudo chmod -R 755 /var/www/weekilaw-backend/storage
-          sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
+          # Set proper permissions for deployment user
+          chown -R $USER:$USER /var/www/weekilaw-backend
+          chmod -R 755 /var/www/weekilaw-backend/storage
+          chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
 
           # Install PHP dependencies
           composer install --no-dev --optimize-autoloader --no-interaction
@@ -107,7 +106,18 @@ jobs:
           # Remove maintenance mode
           php artisan up
 
-          # Restart PHP-FPM
-          sudo systemctl reload php8.4-fpm
+          # Note: For production permissions and service restart, run manually:
+          # sudo chown -R www-data:www-data /var/www/weekilaw-backend
+          # sudo chmod -R 775 /var/www/weekilaw-backend/storage
+          # sudo chmod -R 775 /var/www/weekilaw-backend/bootstrap/cache
+          # sudo systemctl reload php8.4-fpm
+          # sudo systemctl reload nginx
 
           echo "Backend deployment completed successfully!"
+          echo ""
+          echo "POST-DEPLOYMENT: Run these commands on your server:"
+          echo "sudo chown -R www-data:www-data /var/www/weekilaw-backend"
+          echo "sudo chmod -R 775 /var/www/weekilaw-backend/storage"
+          echo "sudo chmod -R 775 /var/www/weekilaw-backend/bootstrap/cache"
+          echo "sudo systemctl reload php8.4-fpm"
+          echo "sudo systemctl reload nginx"
