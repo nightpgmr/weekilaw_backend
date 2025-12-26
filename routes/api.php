@@ -22,3 +22,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 // Lawyer Search API
 Route::post('/lawyers/search', [LawyerSearchController::class, 'search'])
     ->name('api.lawyers.search');
+
+// Lawyer Verification API
+Route::post('/lawyers/verify', [LawyerSearchController::class, 'verify'])
+    ->name('api.lawyers.verify');
