@@ -19,8 +19,20 @@ jobs:
         php-version: '8.4'
         extensions: pdo, pdo_mysql, mbstring, xml, curl, zip, bcmath, intl, gd
 
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
     - name: Install PHP dependencies
       run: composer install --no-dev --optimize-autoloader --no-interaction
+
+    - name: Install Node.js dependencies
+      run: npm ci
+
+    - name: Build frontend assets
+      run: npm run build
 
     - name: Create .env file
       run: |
@@ -87,6 +99,12 @@ jobs:
 
           # Install PHP dependencies
           composer install --no-dev --optimize-autoloader --no-interaction
+
+          # Install Node.js dependencies
+          npm ci
+
+          # Build frontend assets
+          npm run build
 
           # Clear and cache config
           php artisan config:clear
