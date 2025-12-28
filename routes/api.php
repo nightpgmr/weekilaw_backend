@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\LawyerSearchController;
+use App\Http\Controllers\Api\ChatController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,3 +27,10 @@ Route::post('/lawyers/search', [LawyerSearchController::class, 'search'])
 // Lawyer Verification API
 Route::post('/lawyers/verify', [LawyerSearchController::class, 'verify'])
     ->name('api.lawyers.verify');
+
+// AI Chat API
+Route::post('/chat/ask', [ChatController::class, 'ask'])
+    ->name('api.chat.ask');
+
+Route::get('/chat/health', [ChatController::class, 'health'])
+    ->name('api.chat.health');

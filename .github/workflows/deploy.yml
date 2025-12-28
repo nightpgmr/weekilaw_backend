@@ -1,14 +1,13 @@
-name: Deploy Backend
+name: Deploy Backend with AI Mock
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   workflow_dispatch:
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -16,116 +15,189 @@ jobs:
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
-        php-version: '8.4'
-        extensions: pdo, pdo_mysql, mbstring, xml, curl, zip, bcmath, intl, gd
+        php-version: '8.2'
+        extensions: pdo, mbstring, openssl, tokenizer, xml, ctype, json, bcmath, fileinfo
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - name: Cache Composer dependencies
+      uses: actions/cache@v3
       with:
-        node-version: '20'
-        cache: 'npm'
+        path: vendor
+        key: ${{ runner.os }}-php-${{ hashFiles('composer.lock') }}
+        restore-keys: ${{ runner.os }}-php-
 
     - name: Install PHP dependencies
-      run: composer install --no-dev --optimize-autoloader --no-interaction
+      run: composer install --no-dev --optimize-autoloader
 
-    - name: Install Node.js dependencies
-      run: npm ci
-
-    - name: Build frontend assets
-      run: npm run build
-
-    - name: Create .env file
-      run: |
-        cp .env.example .env
-        sed -i 's|APP_ENV=.*|APP_ENV=production|' .env
-        sed -i 's|APP_DEBUG=.*|APP_DEBUG=false|' .env
-        sed -i 's|APP_URL=.*|APP_URL=http://78.110.124.182|' .env
-        sed -i 's|DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
-        sed -i 's|DB_HOST=.*|DB_HOST=127.0.0.1|' .env
-        sed -i 's|DB_PORT=.*|DB_PORT=3306|' .env
-        sed -i 's|DB_DATABASE=.*|DB_DATABASE=weekilaw|' .env
-        sed -i 's|DB_USERNAME=.*|DB_USERNAME=weekilaw|' .env
-        sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=WeekiLawDb2025|' .env
+    - name: Copy environment file
+      run: cp .env.example .env || cp .env.ci .env || echo "APP_KEY=" > .env
 
     - name: Generate application key
       run: php artisan key:generate
 
     - name: Run tests
-      run: php artisan test --no-interaction || true
+      run: php artisan test --no-interaction || echo "Tests failed but continuing deployment"
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: pdo, mbstring, openssl, tokenizer, xml, ctype, json, bcmath, fileinfo
+
+    - name: Cache Composer dependencies
+      uses: actions/cache@v3
+      with:
+        path: vendor
+        key: ${{ runner.os }}-php-${{ hashFiles('composer.lock') }}
+        restore-keys: ${{ runner.os }}-php-
+
+    - name: Install PHP dependencies
+      run: composer install --no-dev --optimize-autoloader
+
+    - name: Setup Python for Flask API
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('python-api/requirements.txt') }}
+        restore-keys: ${{ runner.os }}-pip-
+
+    - name: Test Flask API
+      run: |
+        cd python-api
+        pip install -r requirements.txt
+        python -c "import api_Gemini_3pro; print('Flask API imports successfully')" || echo "Flask API test failed but continuing"
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
 
     - name: Deploy to server
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USER }}
-        key: ${{ secrets.SSH_KEY }}
-        port: ${{ secrets.SSH_PORT || 50022 }}
-        script: |
-          # Create deployment directory if it doesn't exist
-          sudo mkdir -p /var/www/weekilaw-backend
-
-          # Stop any running processes if needed
-          # Add maintenance mode
-          cd /var/www/weekilaw-backend && sudo php artisan down || true
-
-          # Backup current .env
-          sudo cp /var/www/weekilaw-backend/.env /var/www/weekilaw-backend/.env.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
-
-    - name: Sync files to server
-      uses: burnett01/rsync-deployments@6.0.0
-      with:
-        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage' --exclude='bootstrap/cache' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github'
-        path: .
-        remote_path: /var/www/weekilaw-backend
-        remote_host: ${{ secrets.SSH_HOST }}
-        remote_user: ${{ secrets.SSH_USER }}
-        remote_key: ${{ secrets.SSH_KEY }}
-        remote_port: ${{ secrets.SSH_PORT || 50022 }}
-
-    - name: Run deployment commands on server
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USER }}
-        key: ${{ secrets.SSH_KEY }}
-        port: ${{ secrets.SSH_PORT || 50022 }}
-        script: |
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
           cd /var/www/weekilaw-backend
 
-          # Set proper permissions
-          sudo chown -R www-data:www-data /var/www/weekilaw-backend
-          sudo chmod -R 755 /var/www/weekilaw-backend/storage
-          sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
+          # Backup current deployment
+          sudo cp -r . ../weekilaw-backend_backup_$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
 
-          # Install PHP dependencies
-          composer install --no-dev --optimize-autoloader --no-interaction
+          # Stop services
+          sudo systemctl stop nginx 2>/dev/null || true
+          sudo systemctl stop php8.2-fpm 2>/dev/null || true
+          docker-compose down 2>/dev/null || true
 
-          # Install Node.js dependencies
-          npm ci
+          # Clean and prepare
+          sudo rm -rf *
+          sudo chown -R ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} .
+        EOF
 
-          # Build frontend assets
-          npm run build
+    - name: Upload backend files
+      uses: appleboy/scp-action@v0.1.4
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
+        source: "."
+        target: "/var/www/weekilaw-backend"
+        strip_components: 0
+
+    - name: Run deployment commands on server
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+          cd /var/www/weekilaw-backend
+
+          # Set permissions
+          sudo chown -R www-data:www-data .
+          sudo chown -R ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} storage bootstrap/cache python-api
+
+          # Install dependencies
+          composer install --no-dev --optimize-autoloader
+
+          # Copy environment file if not exists
+          if [ ! -f .env ]; then
+            cp .env.example .env 2>/dev/null || echo "Creating basic .env"
+            echo "APP_ENV=production" >> .env
+            echo "APP_DEBUG=false" >> .env
+            echo "DB_CONNECTION=sqlite" >> .env
+            echo "DB_DATABASE=/var/www/weekilaw-backend/database/database.sqlite" >> .env
+            echo "FLASK_API_URL=http://localhost:8001" >> .env
+          fi
+
+          # Generate application key if not set
+          if ! grep -q "APP_KEY=base64:" .env; then
+            php artisan key:generate
+          fi
 
           # Clear and cache config
           php artisan config:clear
+          php artisan cache:clear
+          php artisan route:clear
+          php artisan view:clear
+
+          # Run database migrations
+          php artisan migrate --force
+
+          # Cache config for production
           php artisan config:cache
           php artisan route:cache
           php artisan view:cache
 
-          # Run migrations
-          php artisan migrate --force --no-interaction
+          # Install Python dependencies for Flask API
+          cd python-api
+          pip3 install -r requirements.txt
+          cd ..
 
-          # Create storage link
-          php artisan storage:link
+          # Set proper permissions
+          sudo chmod -R 755 storage
+          sudo chmod -R 755 bootstrap/cache
+          sudo chown -R www-data:www-data storage
+          sudo chown -R www-data:www-data bootstrap/cache
 
-          # Clear all caches
-          php artisan cache:clear
-          php artisan view:clear
+          # Start services with docker-compose
+          if [ -f docker-compose.yml ]; then
+            docker-compose up -d --build
+          else
+            # Fallback to systemd services
+            sudo systemctl restart php8.2-fpm
+            sudo systemctl restart nginx
 
-          # Remove maintenance mode
-          php artisan up
+            # Start Flask API with PM2
+            cd python-api
+            pm2 delete flask-api 2>/dev/null || true
+            pm2 start api_Gemini_3pro.py --name flask-api
+            pm2 save
+            cd ..
+          fi
 
-          # Restart PHP-FPM
-          sudo systemctl reload php8.4-fpm
+          # Health check
+          sleep 10
+          curl -f http://localhost/api/chat/health || echo "Health check failed"
+        EOF
 
-          echo "Backend deployment completed successfully!"
+  cleanup:
+    runs-on: ubuntu-latest
+    if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.0
+      with:
+        ssh-private-key: ${{ secrets.SERVER_SSH_PRIVATE_KEY }}
+
+    - name: Cleanup old backups
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+          # Keep only last 5 backups
+          cd /var/www
+          ls -t weekilaw-backend_backup_* 2>/dev/null | tail -n +6 | xargs rm -rf 2>/dev/null || true
+        EOF
