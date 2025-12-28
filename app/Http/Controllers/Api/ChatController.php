@@ -77,30 +77,29 @@ PROMPT;
 
     private function getGeminiResponse(string $question): string
     {
-        // Try Flask API first (internal service)
-        if (env('FLASK_API_URL')) {
-            try {
-                $response = Http::timeout(30)->post(env('FLASK_API_URL'), [
-                    'question' => $question
-                ]);
+        // Try Flask API first (external service running on port 8020)
+        $flaskUrl = env('FLASK_API_URL', 'http://localhost:8020/ask');
+        try {
+            $response = Http::timeout(30)->post($flaskUrl, [
+                'question' => $question
+            ]);
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    if (isset($data['answer'])) {
-                        Log::info('Using Flask AI response');
-                        return $data['answer'];
-                    }
+            if ($response->successful()) {
+                $data = $response->json();
+                if (isset($data['answer']) && $data['success']) {
+                    Log::info('Using Flask AI response');
+                    return $data['answer'];
                 }
-
-                Log::warning('Flask API call failed, falling back to mock response', [
-                    'status' => $response->status(),
-                    'body' => $response->body()
-                ]);
-            } catch (\Exception $e) {
-                Log::warning('Flask API exception, falling back to mock response', [
-                    'error' => $e->getMessage()
-                ]);
             }
+
+            Log::warning('Flask API call failed, falling back to mock response', [
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('Flask API exception, falling back to mock response', [
+                'error' => $e->getMessage()
+            ]);
         }
 
         // Fallback to mock responses
