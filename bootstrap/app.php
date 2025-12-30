@@ -5,6 +5,7 @@ use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\EnsureUserIsClient;
 use App\Http\Middleware\EnsureUserIsSuperAdmin;
+use App\Http\Middleware\Cors;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -26,10 +27,15 @@ return Application::configure(basePath: dirname(__DIR__))
             AddLinkHeadersForPreloadedAssets::class,
         ]);
 
+        $middleware->use([
+            Cors::class,
+        ]);
+
         $middleware->alias([
             'admin' => EnsureUserIsAdmin::class,
             'client' => EnsureUserIsClient::class,
             'superadmin' => EnsureUserIsSuperAdmin::class,
+            'cors' => Cors::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

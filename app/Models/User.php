@@ -21,9 +21,17 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'first_name',
+        'last_name',
         'email',
+        'phone',
         'role',
         'password',
+        'auth_provider',
+        'provider_id',
+        'otp_code',
+        'otp_expires_at',
+        'phone_verified_at',
     ];
 
     /**
@@ -47,6 +55,8 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'phone_verified_at' => 'datetime',
+            'otp_expires_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
         ];

@@ -35,4 +35,16 @@ return [
         ],
     ],
 
+    'kavenegar' => [
+        'api_key' => env('KAVENEGAR_API_KEY'),
+        'template' => env('KAVENEGAR_TEMPLATE', 'liantemp'),
+        'dev_code' => env('OTP_DEV_CODE', '12345'),
+    ],
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', '/api/auth/google/callback'),
+    ],
+
 ];

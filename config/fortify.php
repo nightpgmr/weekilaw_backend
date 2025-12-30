@@ -51,6 +51,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Phone / Mobile
+    |--------------------------------------------------------------------------
+    |
+    | This value defines which model attribute should be considered as your
+    | application's "phone" field for phone authentication.
+    |
+    */
+
+    'phone' => 'phone',
+
+    /*
+    |--------------------------------------------------------------------------
     | Lowercase Usernames
     |--------------------------------------------------------------------------
     |
@@ -144,9 +156,9 @@ return [
     */
 
     'features' => [
-        Features::registration(),
-        Features::resetPasswords(),
-        Features::emailVerification(),
+        // Features::registration(), // Disabled - using custom phone registration
+        // Features::resetPasswords(), // Disabled - using phone OTP
+        // Features::emailVerification(), // Disabled - using phone verification
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,

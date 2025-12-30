@@ -4,6 +4,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\LawyerSearchController;
 use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Auth\PhoneAuthController;
+use App\Http\Controllers\Auth\GoogleAuthController;
 
 /*
 |--------------------------------------------------------------------------
@@ -34,3 +37,43 @@ Route::post('/chat/ask', [ChatController::class, 'ask'])
 
 Route::get('/chat/health', [ChatController::class, 'health'])
     ->name('api.chat.health');
+
+// Phone Authentication Routes
+Route::prefix('auth/phone')->group(function () {
+    Route::post('/send-login-otp', [PhoneAuthController::class, 'sendLoginOTP'])
+        ->name('auth.phone.send-login-otp');
+
+    Route::post('/send-register-otp', [PhoneAuthController::class, 'sendRegisterOTP'])
+        ->name('auth.phone.send-register-otp');
+
+    Route::post('/verify-login-otp', [PhoneAuthController::class, 'verifyLoginOTP'])
+        ->name('auth.phone.verify-login-otp');
+
+    Route::post('/complete-registration', [PhoneAuthController::class, 'completeRegistration'])
+        ->name('auth.phone.complete-registration');
+
+    Route::post('/resend-otp', [PhoneAuthController::class, 'resendOTP'])
+        ->name('auth.phone.resend-otp');
+});
+
+// Google Authentication Routes
+Route::prefix('auth/google')->group(function () {
+    Route::get('/url', [GoogleAuthController::class, 'getGoogleAuthUrl'])
+        ->name('auth.google.url');
+
+    Route::get('/callback', [GoogleAuthController::class, 'handleGoogleCallback'])
+        ->name('auth.google.callback');
+});
+
+// User Profile Routes (Protected)
+Route::middleware('auth')->group(function () {
+    Route::get('/user/profile', [UserController::class, 'getProfile'])
+        ->name('api.user.profile');
+
+    Route::put('/user/profile', [UserController::class, 'updateProfile'])
+        ->name('api.user.update-profile');
+
+    Route::delete('/user/account', [UserController::class, 'deleteAccount'])
+        ->name('api.user.delete-account');
+});
+
