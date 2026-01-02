@@ -156,7 +156,7 @@ return [
     */
 
     'features' => [
-        // Features::registration(), // Disabled - using custom phone registration
+        Features::registration(),
         // Features::resetPasswords(), // Disabled - using phone OTP
         // Features::emailVerification(), // Disabled - using phone verification
         Features::twoFactorAuthentication([
