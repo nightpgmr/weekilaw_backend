@@ -89,7 +89,19 @@ class GoogleAuthController extends Controller
     public function getGoogleAuthUrl(): JsonResponse
     {
         try {
-            $url = Socialite::driver('google')->stateless()->redirect()->getTargetUrl();
+            $clientId = env('GOOGLE_CLIENT_ID');
+            $redirectUri = env('GOOGLE_REDIRECT_URI');
+
+            $params = [
+                'client_id' => $clientId,
+                'redirect_uri' => $redirectUri,
+                'scope' => 'openid profile email',
+                'response_type' => 'code',
+                'access_type' => 'offline',
+                'prompt' => 'consent',
+            ];
+
+            $url = 'https://accounts.google.com/o/oauth2/auth?' . http_build_query($params);
 
             return response()->json([
                 'success' => true,

@@ -31,12 +31,29 @@ Route::post('/lawyers/search', [LawyerSearchController::class, 'search'])
 Route::post('/lawyers/verify', [LawyerSearchController::class, 'verify'])
     ->name('api.lawyers.verify');
 
-// AI Chat API
-Route::post('/chat/ask', [ChatController::class, 'ask'])
-    ->name('api.chat.ask');
+// AI Chat API (Protected - requires authentication)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/chat/ask', [ChatController::class, 'ask'])
+        ->name('api.chat.ask');
+});
 
 Route::get('/chat/health', [ChatController::class, 'health'])
     ->name('api.chat.health');
+
+// Chat Management Routes (Protected)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/chats/recent', [ChatController::class, 'getRecentChats'])
+        ->name('api.chats.recent');
+
+    Route::get('/chats/{chatId}', [ChatController::class, 'getChat'])
+        ->name('api.chats.show');
+
+    Route::put('/chats/{chatId}', [ChatController::class, 'updateChat'])
+        ->name('api.chats.update');
+
+    Route::delete('/chats/{chatId}', [ChatController::class, 'deleteChat'])
+        ->name('api.chats.delete');
+});
 
 // Phone Authentication Routes
 Route::prefix('auth/phone')->group(function () {
@@ -66,7 +83,7 @@ Route::prefix('auth/google')->group(function () {
 });
 
 // User Profile Routes (Protected)
-Route::middleware('auth')->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/profile', [UserController::class, 'getProfile'])
         ->name('api.user.profile');
 

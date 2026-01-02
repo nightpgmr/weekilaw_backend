@@ -15,10 +15,23 @@ class Cors
      */
     public function handle(Request $request, Closure $next): Response
     {
+        // Allow multiple origins for development
+        $allowedOrigins = [
+            'http://localhost:3000',
+            'http://localhost:3002',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:3002',
+        ];
+
+        $origin = $request->headers->get('Origin');
+
+        // Check if the origin is allowed
+        $allowedOrigin = in_array($origin, $allowedOrigins) ? $origin : 'http://localhost:3000';
+
         // Handle preflight OPTIONS requests
         if ($request->isMethod('OPTIONS')) {
             return response()->json([], 200)
-                ->header('Access-Control-Allow-Origin', 'http://localhost:3002')
+                ->header('Access-Control-Allow-Origin', $allowedOrigin)
                 ->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
                 ->header('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With, Authorization, Accept, X-CSRF-TOKEN')
                 ->header('Access-Control-Allow-Credentials', 'true')
@@ -28,7 +41,7 @@ class Cors
         $response = $next($request);
 
         // Add CORS headers to all responses
-        $response->headers->set('Access-Control-Allow-Origin', 'http://localhost:3002');
+        $response->headers->set('Access-Control-Allow-Origin', $allowedOrigin);
         $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With, Authorization, Accept, X-CSRF-TOKEN');
         $response->headers->set('Access-Control-Allow-Credentials', 'true');

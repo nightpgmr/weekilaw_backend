@@ -15,7 +15,9 @@ use App\Models\FeatureFlag;
 use Illuminate\Http\Request;
 
 Route::get('/', function () {
-    return redirect()->route('login');
+    return file_exists(public_path('index.html'))
+        ? response()->file(public_path('index.html'))
+        : redirect()->route('login');
 })->name('home');
 
 Route::get('/home', function () {
@@ -123,5 +125,13 @@ Route::middleware(['auth', 'verified', 'superadmin'])
         Route::get('backup/download', [BackupController::class, 'download'])->name('backup.download');
         Route::post('backup/restore', [BackupController::class, 'restore'])->name('backup.restore');
 });
+
+// Catch-all route for React SPA (must be last)
+Route::get('/{any}', function () {
+    if (file_exists(public_path('index.html'))) {
+        return response()->file(public_path('index.html'));
+    }
+    abort(404);
+})->where('any', '.*');
 
 require __DIR__.'/settings.php';
