@@ -39,13 +39,13 @@ jobs:
         cp .env.example .env
         sed -i 's|APP_ENV=.*|APP_ENV=production|' .env
         sed -i 's|APP_DEBUG=.*|APP_DEBUG=false|' .env
-        sed -i 's|APP_URL=.*|APP_URL=http://78.110.124.182|' .env
+        sed -i 's|APP_URL=.*|APP_URL=https://panel.weekilaw.com|' .env
         sed -i 's|DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
-        sed -i 's|DB_HOST=.*|DB_HOST=127.0.0.1|' .env
-        sed -i 's|DB_PORT=.*|DB_PORT=3306|' .env
-        sed -i 's|DB_DATABASE=.*|DB_DATABASE=weekilaw|' .env
-        sed -i 's|DB_USERNAME=.*|DB_USERNAME=weekilaw|' .env
-        sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=WeekiLawDb2025|' .env
+        sed -i 's/# DB_HOST/DB_HOST/' .env
+        sed -i 's/# DB_PORT/DB_PORT/' .env
+        sed -i 's/# DB_DATABASE/DB_DATABASE/' .env
+        sed -i 's/# DB_USERNAME/DB_USERNAME/' .env
+        sed -i 's/# DB_PASSWORD/DB_PASSWORD/' .env
         echo "FLASK_API_URL=http://localhost:8020/ask" >> .env
 
         # Add phone authentication settings
@@ -110,16 +110,24 @@ jobs:
         script: |
           cd /var/www/weekilaw-backend
 
+          # Add maintenance mode
+          sudo -u www-data php artisan down || true
+
+          # Install PHP dependencies
+          sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
+
           # Set proper permissions
           sudo chown -R www-data:www-data /var/www/weekilaw-backend
           sudo chmod -R 755 /var/www/weekilaw-backend/storage
           sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
 
-          # Install PHP dependencies
-          sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
-
-          # Clear and cache config
+          # Clear all caches FIRST (important!)
           sudo -u www-data php artisan config:clear
+          sudo -u www-data php artisan cache:clear
+          sudo -u www-data php artisan route:clear
+          sudo -u www-data php artisan view:clear
+
+          # Rebuild caches
           sudo -u www-data php artisan config:cache
           sudo -u www-data php artisan route:cache
           sudo -u www-data php artisan view:cache
@@ -130,14 +138,19 @@ jobs:
           # Create storage link
           sudo -u www-data php artisan storage:link
 
-          # Clear all caches
-          sudo -u www-data php artisan cache:clear
-          sudo -u www-data php artisan view:clear
+          # Generate app key if missing
+          if ! sudo -u www-data php artisan key:generate --show 2>/dev/null | grep -q "base64:"; then
+            sudo -u www-data php artisan key:generate --force
+          fi
 
           # Remove maintenance mode
           sudo -u www-data php artisan up
 
           # Restart PHP-FPM
           sudo systemctl reload php8.4-fpm
+
+          # Test the deployment
+          echo "Testing deployment..."
+          curl -I https://panel.weekilaw.com/ 2>/dev/null | head -1 || echo "Warning: Could not test HTTPS"
 
           echo "Backend deployment completed successfully!"
