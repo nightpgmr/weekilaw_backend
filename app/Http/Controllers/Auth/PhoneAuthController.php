@@ -121,13 +121,19 @@ class PhoneAuthController extends Controller
         $otpCode = $this->otpService->generateOTP();
         $expiresAt = Carbon::now()->addMinutes(5);
 
-        // Store OTP temporarily (we'll create the user only after OTP verification)
-        // For now, we'll use a temporary storage or check if user exists
-        $tempOtpKey = 'register_otp_' . $phone;
-        cache()->put($tempOtpKey, [
+        // Store OTP in database instead of cache (more reliable)
+        // First, clean up any expired OTPs
+        \DB::table('temp_otps')->where('expires_at', '<', Carbon::now())->delete();
+
+        // Store new OTP
+        \DB::table('temp_otps')->insert([
+            'phone' => $phone,
             'otp' => Hash::make($otpCode),
             'expires_at' => $expiresAt,
-        ], 300); // 5 minutes
+            'type' => 'register',
+            'created_at' => Carbon::now(),
+            'updated_at' => Carbon::now(),
+        ]);
 
         // If user doesn't exist, we'll create them during completeRegistration
         // If they exist but haven't completed registration, we'll update them
@@ -249,36 +255,30 @@ class PhoneAuthController extends Controller
         $otp = $request->input('otp');
         $name = $request->input('name');
 
-        // Get OTP from cache
-        $tempOtpKey = 'register_otp_' . $phone;
-        $cachedOtpData = cache()->get($tempOtpKey);
+        // Get OTP from database
+        $otpRecord = \DB::table('temp_otps')
+            ->where('phone', $phone)
+            ->where('type', 'register')
+            ->where('expires_at', '>', Carbon::now())
+            ->first();
 
-        if (!$cachedOtpData) {
+        if (!$otpRecord) {
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید منقضی شده است یا یافت نشد. لطفا دوباره درخواست دهید.',
             ], 422);
         }
 
-        // Check if OTP is expired
-        if (Carbon::parse($cachedOtpData['expires_at'])->isPast()) {
-            cache()->forget($tempOtpKey);
-            return response()->json([
-                'success' => false,
-                'message' => 'کد تایید منقضی شده است',
-            ], 422);
-        }
-
         // Verify OTP
-        if (!Hash::check($otp, $cachedOtpData['otp'])) {
+        if (!Hash::check($otp, $otpRecord->otp)) {
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید اشتباه است',
             ], 422);
         }
 
-        // Clear the cached OTP
-        cache()->forget($tempOtpKey);
+        // Clear the OTP record
+        \DB::table('temp_otps')->where('id', $otpRecord->id)->delete();
 
         // Find or create user
         $user = User::firstOrCreate(
@@ -361,12 +361,15 @@ class PhoneAuthController extends Controller
                 ], 429);
             }
         } else {
-            // For register, check cached OTP timing
-            $tempOtpKey = 'register_otp_' . $phone;
-            $cachedOtpData = cache()->get($tempOtpKey);
+            // For register, check database OTP timing
+            $lastOtp = \DB::table('temp_otps')
+                ->where('phone', $phone)
+                ->where('type', 'register')
+                ->orderBy('created_at', 'desc')
+                ->first();
 
-            if ($cachedOtpData) {
-                $lastSent = Carbon::parse($cachedOtpData['expires_at'])->subMinutes(5);
+            if ($lastOtp) {
+                $lastSent = Carbon::parse($lastOtp->created_at);
                 if ($lastSent->addMinutes(1)->isFuture()) {
                     return response()->json([
                         'success' => false,
@@ -387,12 +390,15 @@ class PhoneAuthController extends Controller
                 'otp_expires_at' => $expiresAt,
             ]);
         } else {
-            // Store OTP in cache for registration
-            $tempOtpKey = 'register_otp_' . $phone;
-            cache()->put($tempOtpKey, [
+            // Store OTP in database for registration
+            \DB::table('temp_otps')->insert([
+                'phone' => $phone,
                 'otp' => Hash::make($otpCode),
                 'expires_at' => $expiresAt,
-            ], 300); // 5 minutes
+                'type' => 'register',
+                'created_at' => Carbon::now(),
+                'updated_at' => Carbon::now(),
+            ]);
         }
 
         // Send OTP via SMS

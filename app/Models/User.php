@@ -33,6 +33,7 @@ class User extends Authenticatable
         'otp_code',
         'otp_expires_at',
         'phone_verified_at',
+        'email_verified_at',
     ];
 
     /**
