@@ -96,7 +96,7 @@ jobs:
     - name: Sync files to server
       uses: burnett01/rsync-deployments@6.0.0
       with:
-        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage' --exclude='bootstrap/cache' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github' --exclude='../weekilaw_frontend' --rsync-path='sudo rsync'
+        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage' --exclude='bootstrap/cache' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github' --exclude='../weekilaw_frontend' --chown=www-data:www-data --rsync-path='sudo rsync'
         path: .
         remote_path: /var/www/weekilaw-backend
         remote_host: ${{ secrets.SSH_HOST }}
@@ -121,16 +121,12 @@ jobs:
           sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
 
           # Set proper permissions for Laravel
-          # Note: CI/CD user needs ownership or limited sudo access for these commands
-          chown -R www-data:www-data /var/www/weekilaw-backend
-          find /var/www/weekilaw-backend -type d -exec chmod 755 {} \;
-          find /var/www/weekilaw-backend -type f -exec chmod 644 {} \;
+          # Files are already owned by www-data:www-data via rsync --chown
           chmod -R 775 /var/www/weekilaw-backend/storage
           chmod -R 775 /var/www/weekilaw-backend/bootstrap/cache
 
           # Ensure database directory exists and has correct permissions
           mkdir -p /var/www/weekilaw-backend/database
-          chown www-data:www-data /var/www/weekilaw-backend/database
           chmod 775 /var/www/weekilaw-backend/database
 
           # Clear all caches FIRST (CRITICAL!)
