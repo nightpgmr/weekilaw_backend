@@ -122,13 +122,15 @@ jobs:
 
           # Set proper permissions for Laravel
           sudo chown -R www-data:www-data /var/www/weekilaw-backend
-          sudo chmod -R 755 /var/www/weekilaw-backend/storage
-          sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
+          sudo find /var/www/weekilaw-backend -type d -exec chmod 755 {} \;
+          sudo find /var/www/weekilaw-backend -type f -exec chmod 644 {} \;
+          sudo chmod -R 775 /var/www/weekilaw-backend/storage
+          sudo chmod -R 775 /var/www/weekilaw-backend/bootstrap/cache
 
           # Ensure database directory exists and has correct permissions
           sudo mkdir -p /var/www/weekilaw-backend/database
           sudo chown www-data:www-data /var/www/weekilaw-backend/database
-          sudo chmod 755 /var/www/weekilaw-backend/database
+          sudo chmod 775 /var/www/weekilaw-backend/database
 
           # Clear all caches FIRST (CRITICAL!)
           sudo -u www-data php artisan config:clear
@@ -142,9 +144,7 @@ jobs:
           fi
 
           # Create SQLite database file if it doesn't exist
-          sudo touch /var/www/weekilaw-backend/database/database.sqlite
-          sudo chown www-data:www-data /var/www/weekilaw-backend/database/database.sqlite
-          sudo chmod 664 /var/www/weekilaw-backend/database/database.sqlite
+          sudo -u www-data touch /var/www/weekilaw-backend/database/database.sqlite
 
           # Run migrations (includes temp_otps table)
           sudo -u www-data php artisan migrate --force --no-interaction
@@ -171,8 +171,7 @@ jobs:
           echo "Running post-deployment setup..."
 
           # Ensure database permissions
-          sudo chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
-          sudo chown www-data:www-data /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
+          sudo -u www-data chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
 
           # Clean expired OTPs
           sudo -u www-data php artisan tinker --execute="\DB::table('temp_otps')->where('expires_at', '<', \Carbon\Carbon::now())->delete(); echo 'Expired OTPs cleaned';" 2>/dev/null || true
