@@ -94,3 +94,56 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('api.user.delete-account');
 });
 
+// Health check endpoint for CI/CD
+Route::get('/health', function () {
+    try {
+        // Test database connection
+        $dbStatus = \DB::connection()->getPdo() ? 'OK' : 'ERROR';
+
+        // Test cache
+        $cacheStatus = 'ERROR';
+        try {
+            cache()->put('health_test', 'ok', 10);
+            $cacheStatus = cache()->get('health_test') === 'ok' ? 'OK' : 'ERROR';
+        } catch (\Exception $e) {
+            $cacheStatus = 'ERROR';
+        }
+
+        return response()->json([
+            'status' => 'healthy',
+            'database' => $dbStatus,
+            'cache' => $cacheStatus,
+            'timestamp' => now()->toISOString()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'unhealthy',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
+// Test cache endpoint
+Route::post("/test-cache", function(Request $request) {
+    $phone = $request->input("phone", "09123456789");
+    $key = "register_otp_" . $phone;
+
+    // Store OTP
+    cache()->put($key, [
+        "otp" => Illuminate\Support\Facades\Hash::make("12345"),
+        "expires_at" => Carbon\Carbon::now()->addMinutes(5)
+    ], 5);
+
+    // Retrieve and check
+    $data = cache()->get($key);
+    $valid = $data && Illuminate\Support\Facades\Hash::check("12345", $data["otp"]);
+
+    return response()->json([
+        "success" => true,
+        "message" => "Cache test",
+        "key" => $key,
+        "stored" => !!$data,
+        "valid" => $valid
+    ]);
+});
+

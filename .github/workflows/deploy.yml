@@ -40,13 +40,17 @@ jobs:
         sed -i 's|APP_ENV=.*|APP_ENV=production|' .env
         sed -i 's|APP_DEBUG=.*|APP_DEBUG=false|' .env
         sed -i 's|APP_URL=.*|APP_URL=https://panel.weekilaw.com|' .env
-        sed -i 's|DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
-        sed -i 's/# DB_HOST/DB_HOST/' .env
-        sed -i 's/# DB_PORT/DB_PORT/' .env
-        sed -i 's/# DB_DATABASE/DB_DATABASE/' .env
-        sed -i 's/# DB_USERNAME/DB_USERNAME/' .env
-        sed -i 's/# DB_PASSWORD/DB_PASSWORD/' .env
+        # Keep SQLite for reliability
+        sed -i 's|DB_CONNECTION=.*|DB_CONNECTION=sqlite|' .env
+        sed -i 's|DB_DATABASE=.*|DB_DATABASE=/var/www/weekilaw-backend/database/database.sqlite|' .env
         echo "FLASK_API_URL=http://localhost:8020/ask" >> .env
+
+        # Add cache configuration
+        echo "CACHE_STORE=redis" >> .env
+        echo "REDIS_CLIENT=phpredis" >> .env
+        echo "REDIS_HOST=127.0.0.1" >> .env
+        echo "REDIS_PASSWORD=null" >> .env
+        echo "REDIS_PORT=6379" >> .env
 
         # Add phone authentication settings
         echo "KAVENEGAR_API_KEY=5242444B61426662376B665444496E4D723750586762796766766766724972664561756966396E574651593D" >> .env
@@ -116,41 +120,65 @@ jobs:
           # Install PHP dependencies
           sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
 
-          # Set proper permissions
+          # Set proper permissions for Laravel
           sudo chown -R www-data:www-data /var/www/weekilaw-backend
           sudo chmod -R 755 /var/www/weekilaw-backend/storage
           sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
+          sudo chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
 
-          # Clear all caches FIRST (important!)
+          # Clear all caches FIRST (CRITICAL!)
           sudo -u www-data php artisan config:clear
           sudo -u www-data php artisan cache:clear
           sudo -u www-data php artisan route:clear
           sudo -u www-data php artisan view:clear
-
-          # Rebuild caches
-          sudo -u www-data php artisan config:cache
-          sudo -u www-data php artisan route:cache
-          sudo -u www-data php artisan view:cache
-
-          # Run migrations
-          sudo -u www-data php artisan migrate --force --no-interaction
-
-          # Create storage link
-          sudo -u www-data php artisan storage:link
 
           # Generate app key if missing
           if ! sudo -u www-data php artisan key:generate --show 2>/dev/null | grep -q "base64:"; then
             sudo -u www-data php artisan key:generate --force
           fi
 
+          # Run migrations (includes temp_otps table)
+          sudo -u www-data php artisan migrate --force --no-interaction
+
+          # Create storage link
+          sudo -u www-data php artisan storage:link || true
+
+          # Rebuild caches AFTER migrations
+          sudo -u www-data php artisan config:cache
+          sudo -u www-data php artisan route:cache
+          sudo -u www-data php artisan view:cache
+
           # Remove maintenance mode
           sudo -u www-data php artisan up
 
-          # Restart PHP-FPM
+          # Restart PHP-FPM and Redis
           sudo systemctl reload php8.4-fpm
+          sudo systemctl restart redis-server || true
+
+          # Run post-deployment setup
+          echo "Running post-deployment setup..."
+
+          # Ensure database permissions
+          sudo chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
+          sudo chown www-data:www-data /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
+
+          # Clean expired OTPs
+          sudo -u www-data php artisan tinker --execute="\DB::table('temp_otps')->where('expires_at', '<', \Carbon\Carbon::now())->delete(); echo 'Expired OTPs cleaned';" 2>/dev/null || true
 
           # Test the deployment
           echo "Testing deployment..."
-          curl -I https://panel.weekilaw.com/ 2>/dev/null | head -1 || echo "Warning: Could not test HTTPS"
+          if curl -f -s https://panel.weekilaw.com/api/health 2>/dev/null | grep -q '"status":"healthy"'; then
+            echo "✅ API is healthy"
+          else
+            echo "⚠️ API health check failed"
+            curl -s https://panel.weekilaw.com/api/health 2>/dev/null || echo "Could not reach health endpoint"
+          fi
+
+          # Test registration endpoint
+          if curl -s -X POST https://panel.weekilaw.com/api/auth/phone/send-register-otp -H 'Content-Type: application/json' -d '{"phone":"09123456789"}' 2>/dev/null | grep -q '"success":true'; then
+            echo "✅ Registration endpoint working"
+          else
+            echo "⚠️ Registration endpoint test failed"
+          fi
 
           echo "Backend deployment completed successfully!"
