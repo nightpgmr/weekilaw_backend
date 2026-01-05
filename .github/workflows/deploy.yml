@@ -124,7 +124,11 @@ jobs:
           sudo chown -R www-data:www-data /var/www/weekilaw-backend
           sudo chmod -R 755 /var/www/weekilaw-backend/storage
           sudo chmod -R 755 /var/www/weekilaw-backend/bootstrap/cache
-          sudo chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
+
+          # Ensure database directory exists and has correct permissions
+          sudo mkdir -p /var/www/weekilaw-backend/database
+          sudo chown www-data:www-data /var/www/weekilaw-backend/database
+          sudo chmod 755 /var/www/weekilaw-backend/database
 
           # Clear all caches FIRST (CRITICAL!)
           sudo -u www-data php artisan config:clear
@@ -136,6 +140,11 @@ jobs:
           if ! sudo -u www-data php artisan key:generate --show 2>/dev/null | grep -q "base64:"; then
             sudo -u www-data php artisan key:generate --force
           fi
+
+          # Create SQLite database file if it doesn't exist
+          sudo touch /var/www/weekilaw-backend/database/database.sqlite
+          sudo chown www-data:www-data /var/www/weekilaw-backend/database/database.sqlite
+          sudo chmod 664 /var/www/weekilaw-backend/database/database.sqlite
 
           # Run migrations (includes temp_otps table)
           sudo -u www-data php artisan migrate --force --no-interaction
@@ -151,9 +160,12 @@ jobs:
           # Remove maintenance mode
           sudo -u www-data php artisan up
 
-          # Restart PHP-FPM and Redis
+          # Ensure Redis is running
+          sudo systemctl enable redis-server
+          sudo systemctl restart redis-server
+
+          # Restart PHP-FPM
           sudo systemctl reload php8.4-fpm
-          sudo systemctl restart redis-server || true
 
           # Run post-deployment setup
           echo "Running post-deployment setup..."
