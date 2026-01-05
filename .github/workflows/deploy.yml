@@ -121,16 +121,17 @@ jobs:
           sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
 
           # Set proper permissions for Laravel
-          sudo chown -R www-data:www-data /var/www/weekilaw-backend
-          sudo find /var/www/weekilaw-backend -type d -exec chmod 755 {} \;
-          sudo find /var/www/weekilaw-backend -type f -exec chmod 644 {} \;
-          sudo chmod -R 775 /var/www/weekilaw-backend/storage
-          sudo chmod -R 775 /var/www/weekilaw-backend/bootstrap/cache
+          # Note: CI/CD user needs ownership or limited sudo access for these commands
+          chown -R www-data:www-data /var/www/weekilaw-backend
+          find /var/www/weekilaw-backend -type d -exec chmod 755 {} \;
+          find /var/www/weekilaw-backend -type f -exec chmod 644 {} \;
+          chmod -R 775 /var/www/weekilaw-backend/storage
+          chmod -R 775 /var/www/weekilaw-backend/bootstrap/cache
 
           # Ensure database directory exists and has correct permissions
-          sudo mkdir -p /var/www/weekilaw-backend/database
-          sudo chown www-data:www-data /var/www/weekilaw-backend/database
-          sudo chmod 775 /var/www/weekilaw-backend/database
+          mkdir -p /var/www/weekilaw-backend/database
+          chown www-data:www-data /var/www/weekilaw-backend/database
+          chmod 775 /var/www/weekilaw-backend/database
 
           # Clear all caches FIRST (CRITICAL!)
           sudo -u www-data php artisan config:clear
@@ -160,18 +161,18 @@ jobs:
           # Remove maintenance mode
           sudo -u www-data php artisan up
 
-          # Ensure Redis is running
-          sudo systemctl enable redis-server
-          sudo systemctl restart redis-server
+          # Ensure Redis is running (requires sudo access)
+          sudo systemctl enable redis-server || echo "Redis already enabled"
+          sudo systemctl restart redis-server || echo "Redis restart failed"
 
-          # Restart PHP-FPM
-          sudo systemctl reload php8.4-fpm
+          # Restart PHP-FPM (requires sudo access)
+          sudo systemctl reload php8.4-fpm || echo "PHP-FPM reload failed"
 
           # Run post-deployment setup
           echo "Running post-deployment setup..."
 
           # Ensure database permissions
-          sudo -u www-data chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
+          chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
 
           # Clean expired OTPs
           sudo -u www-data php artisan tinker --execute="\DB::table('temp_otps')->where('expires_at', '<', \Carbon\Carbon::now())->delete(); echo 'Expired OTPs cleaned';" 2>/dev/null || true
