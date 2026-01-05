@@ -1,6 +1,0 @@
-<svg width="16" height="26" viewBox="0 0 16 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-<g id="icon-phone">
-<path d="M9 21C9 21.5523 8.55228 22 8 22C7.44771 22 7 21.5523 7 21C7 20.4477 7.44771 20 8 20C8.55228 20 9 20.4477 9 21Z" fill="#0E5FE3"/>
-<path fill-rule="evenodd" clip-rule="evenodd" d="M16 24V2C16 0.895431 15.1046 0 14 0H2C0.895431 0 0 0.895431 0 2V24C0 25.1046 0.895431 26 2 26H14C15.1046 26 16 25.1046 16 24ZM4 2H2V24H14V2H12C12 3.10457 11.1046 4 10 4H6C4.89543 4 4 3.10457 4 2Z" fill="#0E5FE3"/>
-</g>
-</svg>

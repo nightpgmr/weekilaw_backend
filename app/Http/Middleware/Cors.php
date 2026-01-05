@@ -15,12 +15,18 @@ class Cors
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Allow multiple origins for development
+        // Allow multiple origins for development and production
         $allowedOrigins = [
             'http://localhost:3000',
             'http://localhost:3002',
             'http://127.0.0.1:3000',
             'http://127.0.0.1:3002',
+            'https://weekilaw.com',
+            'https://www.weekilaw.com',
+            'https://panel.weekilaw.com', 
+            'https://sv.weekilaw.com', 
+            'http://weekilaw.com',
+            'http://www.weekilaw.com',
         ];
 
         $origin = $request->headers->get('Origin');

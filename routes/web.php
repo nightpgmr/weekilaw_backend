@@ -127,11 +127,11 @@ Route::middleware(['auth', 'verified', 'superadmin'])
 });
 
 // Catch-all route for React SPA (must be last)
-Route::get('/{any}', function () {
+Route::fallback(function () {
     if (file_exists(public_path('index.html'))) {
         return response()->file(public_path('index.html'));
     }
     abort(404);
-})->where('any', '.*');
+});
 
 require __DIR__.'/settings.php';

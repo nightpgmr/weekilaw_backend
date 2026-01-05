@@ -164,7 +164,7 @@ class PhoneAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string|regex:/^09\d{9}$/',
-            'otp' => 'required|string|regex:/^\d{4}$/',
+            'otp' => 'required|string|regex:/^\d{4,6}$/',
         ]);
 
         if ($validator->fails()) {
@@ -233,7 +233,7 @@ class PhoneAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string|regex:/^09\d{9}$/',
-            'otp' => 'required|string|regex:/^\d{4}$/',
+            'otp' => 'required|string|regex:/^\d{4,6}$/',
             'name' => 'required|string|min:2|max:255',
         ]);
 
