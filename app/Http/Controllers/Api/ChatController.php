@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class ChatController extends Controller
 {
@@ -49,22 +50,29 @@ PROMPT;
     public function ask(Request $request): JsonResponse
     {
         try {
-            $user = Auth::user();
+            // Manually check for authentication since this route is not protected by auth:sanctum middleware
+            $user = null;
+            $token = $request->bearerToken();
+            if ($token) {
+                $accessToken = PersonalAccessToken::findToken($token);
+                if ($accessToken && !$accessToken->cant('*')) {
+                    $user = $accessToken->tokenable;
+                }
+            }
 
             $request->validate([
                 'question' => 'required|string|max:2000',
                 'chat_id' => $user ? 'nullable|integer|exists:chats,id' : 'nullable|integer' // Don't validate existence for anonymous users
             ]);
 
-            // If user is not authenticated but chat_id is provided, ignore chat_id (anonymous chat)
             $chatId = $request->input('chat_id');
+
+            // If user is not authenticated but chat_id is provided, ignore chat_id (anonymous chat)
             if (!$user && $chatId) {
                 $chatId = null; // Treat as new anonymous chat
             }
 
             $question = $request->input('question');
-            $chatId = $request->input('chat_id');
-            $user = Auth::user(); // Can be null for anonymous users
 
             Log::info('Processing legal question', [
                 'question' => substr($question, 0, 100) . '...',
@@ -91,8 +99,7 @@ PROMPT;
         } catch (\Exception $e) {
             Log::error('Chat API error', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'user_authenticated' => Auth::check()
+                'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
