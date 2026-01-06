@@ -31,11 +31,9 @@ Route::post('/lawyers/search', [LawyerSearchController::class, 'search'])
 Route::post('/lawyers/verify', [LawyerSearchController::class, 'verify'])
     ->name('api.lawyers.verify');
 
-// AI Chat API (Protected - requires authentication)
-Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/chat/ask', [ChatController::class, 'ask'])
-        ->name('api.chat.ask');
-});
+// AI Chat API (Public - no authentication required for chatting)
+Route::post('/chat/ask', [ChatController::class, 'ask'])
+    ->name('api.chat.ask');
 
 Route::get('/chat/health', [ChatController::class, 'health'])
     ->name('api.chat.health');

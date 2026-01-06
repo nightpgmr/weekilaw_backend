@@ -49,36 +49,50 @@ PROMPT;
     public function ask(Request $request): JsonResponse
     {
         try {
+            $user = Auth::user();
+
             $request->validate([
                 'question' => 'required|string|max:2000',
-                'chat_id' => 'nullable|integer|exists:chats,id'
+                'chat_id' => $user ? 'nullable|integer|exists:chats,id' : 'nullable|integer' // Don't validate existence for anonymous users
             ]);
+
+            // If user is not authenticated but chat_id is provided, ignore chat_id (anonymous chat)
+            $chatId = $request->input('chat_id');
+            if (!$user && $chatId) {
+                $chatId = null; // Treat as new anonymous chat
+            }
 
             $question = $request->input('question');
             $chatId = $request->input('chat_id');
-            $user = Auth::user();
+            $user = Auth::user(); // Can be null for anonymous users
 
             Log::info('Processing legal question', [
                 'question' => substr($question, 0, 100) . '...',
-                'user_id' => $user->id,
-                'chat_id' => $chatId
+                'user_id' => $user ? $user->id : null,
+                'chat_id' => $chatId,
+                'authenticated' => $user ? true : false
             ]);
 
             $response = $this->getGeminiResponse($question);
 
-            // Save or update chat
-            $chat = $this->saveChatMessage($user->id, $chatId, $question, $response);
+            // Only save chat data if user is authenticated
+            $chat = null;
+            if ($user) {
+                $chat = $this->saveChatMessage($user->id, $chatId, $question, $response);
+            }
 
             return response()->json([
                 'answer' => $response,
-                'chat_id' => $chat->id,
+                'chat_id' => $chat ? $chat->id : null,
+                'saved' => $user ? true : false,
                 'success' => true
             ]);
 
         } catch (\Exception $e) {
             Log::error('Chat API error', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
+                'user_authenticated' => Auth::check()
             ]);
 
             return response()->json([
