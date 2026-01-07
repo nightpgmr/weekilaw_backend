@@ -18,7 +18,7 @@ class AdminHubController extends Controller
 
         return Inertia::render('admin/hub', [
             'tab' => $tab,
-            'users' => User::select('id', 'name', 'email', 'role', 'created_at')
+            'users' => User::select('id', 'name', 'email', 'role', 'wallet_balance', 'created_at')
                 ->orderByDesc('created_at')
                 ->get(),
             'roles' => Role::with('permissions:id,slug')

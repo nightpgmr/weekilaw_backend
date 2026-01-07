@@ -16,7 +16,7 @@ class UserManagementController extends Controller
     public function index(): Response
     {
         return Inertia::render('admin/users', [
-            'users' => User::select('id', 'name', 'email', 'role', 'created_at')
+            'users' => User::select('id', 'name', 'email', 'role', 'wallet_balance', 'created_at')
                 ->orderByDesc('created_at')
                 ->get(),
             'roles' => Role::orderBy('slug')->get(['id', 'name', 'slug']),

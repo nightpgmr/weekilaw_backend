@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\LawyerSearchController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\WalletController;
 use App\Http\Controllers\Auth\PhoneAuthController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 
@@ -90,6 +91,21 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::delete('/user/account', [UserController::class, 'deleteAccount'])
         ->name('api.user.delete-account');
+});
+
+// Wallet Routes
+Route::get('/wallet/callback', [WalletController::class, 'callback'])
+    ->name('api.wallet.callback');
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/wallet/balance', [WalletController::class, 'getBalance'])
+        ->name('api.wallet.balance');
+
+    Route::post('/wallet/add-money', [WalletController::class, 'addMoney'])
+        ->name('api.wallet.add-money');
+
+    Route::get('/wallet/transactions', [WalletController::class, 'getTransactions'])
+        ->name('api.wallet.transactions');
 });
 
 // Health check endpoint for CI/CD

@@ -9,6 +9,7 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable
 {
@@ -34,6 +35,7 @@ class User extends Authenticatable
         'otp_expires_at',
         'phone_verified_at',
         'email_verified_at',
+        'wallet_balance',
     ];
 
     /**
@@ -61,6 +63,7 @@ class User extends Authenticatable
             'otp_expires_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
+            'wallet_balance' => 'decimal:2',
         ];
     }
 
@@ -77,5 +80,58 @@ class User extends Authenticatable
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class);
+    }
+
+    public function walletTransactions(): HasMany
+    {
+        return $this->hasMany(WalletTransaction::class);
+    }
+
+    public function addToWallet(float $amount, string $description = null, array $metadata = []): WalletTransaction
+    {
+        return \DB::transaction(function () use ($amount, $description, $metadata) {
+            $balanceBefore = $this->wallet_balance;
+            $balanceAfter = $balanceBefore + $amount;
+
+            $this->update(['wallet_balance' => $balanceAfter]);
+
+            return WalletTransaction::create([
+                'user_id' => $this->id,
+                'type' => 'deposit',
+                'amount' => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'status' => 'completed',
+                'description' => $description,
+                'metadata' => $metadata,
+                'completed_at' => now(),
+            ]);
+        });
+    }
+
+    public function deductFromWallet(float $amount, string $description = null, array $metadata = []): ?WalletTransaction
+    {
+        if ($this->wallet_balance < $amount) {
+            return null; // Insufficient balance
+        }
+
+        return \DB::transaction(function () use ($amount, $description, $metadata) {
+            $balanceBefore = $this->wallet_balance;
+            $balanceAfter = $balanceBefore - $amount;
+
+            $this->update(['wallet_balance' => $balanceAfter]);
+
+            return WalletTransaction::create([
+                'user_id' => $this->id,
+                'type' => 'charge',
+                'amount' => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after' => $balanceAfter,
+                'status' => 'completed',
+                'description' => $description,
+                'metadata' => $metadata,
+                'completed_at' => now(),
+            ]);
+        });
     }
 }

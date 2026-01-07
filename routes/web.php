@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\PermissionController;
 use App\Http\Controllers\Admin\AdminHubController;
+use App\Http\Controllers\Admin\WalletManagementController;
 use App\Http\Controllers\Admin\BackupController;
 use App\Models\FeatureFlag;
 use Illuminate\Http\Request;
@@ -45,6 +46,13 @@ Route::middleware(['auth', 'verified', 'admin'])->group(function () {
             'clients' => User::where('role', 'client')->count(),
         ];
 
+        $totalWalletBalance = User::sum('wallet_balance');
+        $walletStats = [
+            'total_balance' => (float) $totalWalletBalance,
+            'total_transactions' => \App\Models\WalletTransaction::count(),
+            'pending_transactions' => \App\Models\WalletTransaction::where('status', 'pending')->count(),
+        ];
+
         $stats = [
             'counts' => [
                 'users' => $userCounts['total'],
@@ -59,6 +67,7 @@ Route::middleware(['auth', 'verified', 'admin'])->group(function () {
                 'database' => $database,
                 'host' => $host,
             ],
+            'wallet' => $walletStats,
         ];
 
         return Inertia::render('dashboard', [
@@ -103,6 +112,11 @@ Route::middleware(['auth', 'verified', 'superadmin'])
         Route::post('permissions', [PermissionController::class, 'store'])->name('permissions.store');
         Route::patch('permissions/{permission}', [PermissionController::class, 'update'])->name('permissions.update');
         Route::delete('permissions/{permission}', [PermissionController::class, 'destroy'])->name('permissions.destroy');
+
+        // Wallet Management Routes
+        Route::get('wallet/transactions', [WalletManagementController::class, 'getTransactions'])->name('wallet.transactions');
+        Route::get('wallet/statistics', [WalletManagementController::class, 'getStatistics'])->name('wallet.statistics');
+        Route::post('wallet/users/{user}/adjust-balance', [WalletManagementController::class, 'adjustBalance'])->name('wallet.adjust-balance');
 
         Route::get('hub', [AdminHubController::class, 'index'])->name('hub');
         Route::get('under-construction', function () {

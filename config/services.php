@@ -47,4 +47,9 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', '/api/auth/google/callback'),
     ],
 
+    'zarinpal' => [
+        'merchant_id' => env('ZARINPAL_MERCHANT_ID', 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX'),
+        'sandbox' => env('ZARINPAL_SANDBOX', true),
+    ],
+
 ];

@@ -111,6 +111,7 @@ class UserController extends Controller
                     'last_name' => $user->last_name,
                     'email' => $user->email,
                     'phone' => $user->phone,
+                    'wallet_balance' => (float) $user->wallet_balance,
                 ]
             ]);
 
