@@ -96,7 +96,7 @@ jobs:
     - name: Sync files to server
       uses: burnett01/rsync-deployments@6.0.0
       with:
-        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage' --exclude='bootstrap/cache' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github' --exclude='../weekilaw_frontend' --chown=www-data:www-data --rsync-path='sudo rsync'
+        switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='vendor' --exclude='storage' --exclude='bootstrap/cache' --exclude='tests' --exclude='.env.example' --exclude='phpunit.xml' --exclude='.github' --exclude='../weekilaw_frontend' --exclude='database/*.sqlite*' --chown=www-data:www-data --rsync-path='sudo rsync'
         path: .
         remote_path: /var/www/weekilaw-backend
         remote_host: ${{ secrets.SSH_HOST }}
@@ -114,6 +114,15 @@ jobs:
         script: |
           cd /var/www/weekilaw-backend
 
+          # BACKUP DATABASE BEFORE DEPLOYMENT
+          DB_FILE="/var/www/weekilaw-backend/database/database.sqlite"
+          DB_BACKUP="/var/www/weekilaw-backend/database/database.sqlite.backup.$(date +%Y%m%d_%H%M%S)"
+          if [ -f "$DB_FILE" ]; then
+            echo "📦 Backing up existing database..."
+            sudo cp "$DB_FILE" "$DB_BACKUP"
+            echo "✅ Database backed up to: $DB_BACKUP"
+          fi
+
           # Add maintenance mode
           sudo -u www-data php artisan down || true
 
@@ -129,6 +138,22 @@ jobs:
           mkdir -p /var/www/weekilaw-backend/database
           chmod 775 /var/www/weekilaw-backend/database
 
+          # RESTORE DATABASE IF IT WAS DELETED
+          if [ ! -f "$DB_FILE" ] && [ -f "$DB_BACKUP" ]; then
+            echo "🔄 Restoring database from backup..."
+            sudo cp "$DB_BACKUP" "$DB_FILE"
+            sudo chown www-data:www-data "$DB_FILE"
+            sudo chmod 664 "$DB_FILE"
+            echo "✅ Database restored from backup"
+          fi
+
+          # Create SQLite database file if it doesn't exist (only if no backup exists)
+          if [ ! -f "$DB_FILE" ]; then
+            echo "📝 Creating new database file..."
+            sudo -u www-data touch "$DB_FILE"
+            sudo chmod 664 "$DB_FILE"
+          fi
+
           # Clear all caches FIRST (CRITICAL!)
           sudo -u www-data php artisan config:clear
           sudo -u www-data php artisan cache:clear
@@ -139,9 +164,6 @@ jobs:
           if ! sudo -u www-data php artisan key:generate --show 2>/dev/null | grep -q "base64:"; then
             sudo -u www-data php artisan key:generate --force
           fi
-
-          # Create SQLite database file if it doesn't exist
-          sudo -u www-data touch /var/www/weekilaw-backend/database/database.sqlite
 
           # Run migrations (includes temp_otps table)
           sudo -u www-data php artisan migrate --force --no-interaction
@@ -167,8 +189,16 @@ jobs:
           # Run post-deployment setup
           echo "Running post-deployment setup..."
 
-          # Ensure database permissions
-          chmod 664 /var/www/weekilaw-backend/database/database.sqlite 2>/dev/null || true
+          # Ensure database permissions and ownership
+          if [ -f "$DB_FILE" ]; then
+            sudo chown www-data:www-data "$DB_FILE"
+            sudo chmod 664 "$DB_FILE"
+            echo "✅ Database permissions set correctly"
+          fi
+
+          # Clean up old database backups (keep last 5)
+          echo "🧹 Cleaning up old database backups..."
+          ls -t /var/www/weekilaw-backend/database/database.sqlite.backup.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
 
           # Clean expired OTPs
           sudo -u www-data php artisan tinker --execute="\DB::table('temp_otps')->where('expires_at', '<', \Carbon\Carbon::now())->delete(); echo 'Expired OTPs cleaned';" 2>/dev/null || true
