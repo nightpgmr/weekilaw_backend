@@ -137,6 +137,19 @@ Route::get('/health', function () {
     }
 });
 
+// Under Construction Status Endpoint
+Route::get('/under-construction', function () {
+    try {
+        $flag = \App\Models\FeatureFlag::where('key', 'under_construction')->first();
+        return response()->json([
+            'enabled' => $flag ? $flag->enabled : false,
+        ]);
+    } catch (\Exception $e) {
+        // If database is not available, assume site is live
+        return response()->json(['enabled' => false]);
+    }
+});
+
 // Test cache endpoint
 Route::post("/test-cache", function(Request $request) {
     $phone = $request->input("phone", "09123456789");

@@ -36,18 +36,18 @@ export default function UnderConstruction({ enabled }: PageProps) {
                     <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                         <Hammer size={24} />
                     </div>
-                    <h1 className="text-2xl font-semibold">This section is under construction</h1>
+                    <h1 className="text-2xl font-semibold">مدیریت حالت "در حال ساخت"</h1>
                     <p className="mt-2 text-sm text-muted-foreground">
-                        We are preparing this area. Check back soon for new features.
+                        این تنظیمات برای کنترل نمایش صفحه "در حال ساخت" در وب‌سایت اصلی استفاده می‌شود.
                     </p>
                     <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium">
                         <span
                             className={`inline-flex h-2 w-2 rounded-full ${enabled ? 'bg-emerald-500' : 'bg-rose-500'}`}
                         />
-                        <span>DB flag: {enabled ? 'Enabled' : 'Disabled'}</span>
+                        <span>وضعیت: {enabled ? 'فعال' : 'غیرفعال'}</span>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
-                        Toggle the `under_construction` feature flag in the database to enable/disable this page.
+                        با تغییر این تنظیمات، صفحه "در حال ساخت" در وب‌سایت اصلی نمایش داده یا پنهان می‌شود.
                     </p>
                     <div className="mt-4 flex justify-center gap-3">
                         <button
@@ -56,7 +56,7 @@ export default function UnderConstruction({ enabled }: PageProps) {
                             onClick={() => toggle(!enabled)}
                             disabled={busy}
                         >
-                            {busy ? 'Saving...' : enabled ? 'Disable page' : 'Enable page'}
+                            {busy ? 'در حال ذخیره...' : enabled ? 'غیرفعال کردن صفحه' : 'فعال کردن صفحه'}
                         </button>
                     </div>
                     {flash.success && (
