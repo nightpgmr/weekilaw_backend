@@ -104,6 +104,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/wallet/add-money', [WalletController::class, 'addMoney'])
         ->name('api.wallet.add-money');
 
+    Route::post('/wallet/add-money-government', [WalletController::class, 'addMoneyGovernment'])
+        ->name('api.wallet.add-money-government');
+
     Route::get('/wallet/transactions', [WalletController::class, 'getTransactions'])
         ->name('api.wallet.transactions');
 });

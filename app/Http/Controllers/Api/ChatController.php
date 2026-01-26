@@ -115,7 +115,7 @@ PROMPT;
         $flaskUrl = env('FLASK_API_URL', 'http://localhost:8020/ask');
         try {
             $response = Http::timeout(30)->post($flaskUrl, [
-                'question' => $question
+                'message' => $question
             ]);
 
             if ($response->successful()) {
