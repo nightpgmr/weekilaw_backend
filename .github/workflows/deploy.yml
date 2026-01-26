@@ -26,7 +26,7 @@ jobs:
     - name: Install PHP dependencies
       run: composer install --no-dev --optimize-autoloader --no-interaction
 
-    - name: Setup Node.js for backend
+    - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
@@ -48,14 +48,12 @@ jobs:
         sed -i 's|DB_DATABASE=.*|DB_DATABASE=/var/www/weekilaw-backend/database/database.sqlite|' .env
 
         echo "FLASK_API_URL=http://localhost:8020/ask" >> .env
-
         echo "CACHE_STORE=redis" >> .env
         echo "REDIS_CLIENT=phpredis" >> .env
         echo "REDIS_HOST=127.0.0.1" >> .env
         echo "REDIS_PASSWORD=null" >> .env
         echo "REDIS_PORT=6379" >> .env
 
-        # Inject secrets safely
         echo "KAVENEGAR_API_KEY=${{ secrets.KAVENEGAR_API_KEY }}" >> .env
         echo "KAVENEGAR_TEMPLATE=${{ secrets.KAVENEGAR_TEMPLATE }}" >> .env
         echo "OTP_DEV_CODE=${{ secrets.OTP_DEV_CODE }}" >> .env
@@ -68,10 +66,10 @@ jobs:
         echo "Waiting for Flask API to be ready..."
         for i in {1..30}; do
           if curl -f http://localhost:8020/health > /dev/null 2>&1; then
-            echo "✅ Flask API is ready"
+            echo "✅ Flask API ready"
             break
           fi
-          echo "Waiting for Flask API... ($i/30)"
+          echo "Waiting... ($i/30)"
           sleep 10
         done
 
@@ -79,11 +77,19 @@ jobs:
       run: php artisan test --no-interaction || true
 
     # ----------------------------
-    # PACKAGE AND UPLOAD BACKEND
+    # TEST NETWORK CONNECTIVITY
+    # ----------------------------
+    - name: Test SSH connectivity
+      run: |
+        echo "Checking network to server..."
+        nc -zv ${{ secrets.SSH_HOST }} ${{ secrets.SSH_PORT || 50022 }}
+
+    # ----------------------------
+    # PACKAGE BACKEND
     # ----------------------------
     - name: Package backend
       run: |
-        tar -czf backend.tar.gz --ignore-failed-read \
+        tar -czf backend.tar.gz --warning=no-file-changed \
           --exclude=.git \
           --exclude=node_modules \
           --exclude=vendor \
@@ -105,9 +111,9 @@ jobs:
         target: /var/www/weekilaw-backend
 
     # ----------------------------
-    # RUN DEPLOY COMMANDS ON SERVER
+    # DEPLOY ON SERVER
     # ----------------------------
-    - name: Run deployment commands on server
+    - name: Deploy on server
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SSH_HOST }}
@@ -120,31 +126,22 @@ jobs:
           echo "📦 Extracting backend archive..."
           sudo tar -xzf backend.tar.gz
           sudo rm -f backend.tar.gz
-
-          # Ensure ownership
           sudo chown -R www-data:www-data /var/www/weekilaw-backend
 
-          # BACKUP DATABASE BEFORE DEPLOYMENT
           DB_FILE="/var/www/weekilaw-backend/database/database.sqlite"
           DB_BACKUP="/var/www/weekilaw-backend/database/database.sqlite.backup.$(date +%Y%m%d_%H%M%S)"
+
           if [ -f "$DB_FILE" ]; then
-            echo "📦 Backing up existing database..."
+            echo "📦 Backing up database..."
             sudo cp "$DB_FILE" "$DB_BACKUP"
-            echo "✅ Database backed up to: $DB_BACKUP"
           fi
 
-          # Enable maintenance mode
           sudo -u www-data php artisan down || true
-
-          # Install PHP dependencies
           sudo -u www-data composer install --no-dev --optimize-autoloader --no-interaction
-
-          # Set proper permissions
           chmod -R 775 storage bootstrap/cache
           mkdir -p database
           chmod 775 database
 
-          # Restore database if missing
           if [ ! -f "$DB_FILE" ] && [ -f "$DB_BACKUP" ]; then
             echo "🔄 Restoring database from backup..."
             sudo cp "$DB_BACKUP" "$DB_FILE"
@@ -152,45 +149,32 @@ jobs:
             sudo chmod 664 "$DB_FILE"
           fi
 
-          # Clear caches
           sudo -u www-data php artisan config:clear
           sudo -u www-data php artisan cache:clear
           sudo -u www-data php artisan route:clear
           sudo -u www-data php artisan view:clear
 
-          # Run migrations
           sudo -u www-data php artisan migrate --force --no-interaction
-
-          # Storage link
           sudo -u www-data php artisan storage:link || true
-
-          # Rebuild caches
           sudo -u www-data php artisan config:cache
           sudo -u www-data php artisan route:cache
           sudo -u www-data php artisan view:cache
-
-          # Remove maintenance mode
           sudo -u www-data php artisan up
 
-          # Restart Redis & PHP-FPM
           sudo systemctl enable redis-server || echo "Redis already enabled"
           sudo systemctl restart redis-server || echo "Redis restart failed"
           sudo systemctl reload php8.4-fpm || echo "PHP-FPM reload failed"
 
-          # Clean old database backups (keep last 5)
           ls -t /var/www/weekilaw-backend/database/database.sqlite.backup.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
 
-          # Clean expired OTPs
           sudo -u www-data php artisan tinker --execute="\DB::table('temp_otps')->where('expires_at', '<', \Carbon\Carbon::now())->delete();" 2>/dev/null || true
 
-          # Test API health
           if curl -f -s https://panel.weekilaw.com/api/health 2>/dev/null | grep -q '"status":"healthy"'; then
-            echo "✅ API is healthy"
+            echo "✅ API healthy"
           else
-            echo "⚠️ API health check failed"
+            echo "⚠️ API health failed"
           fi
 
-          # Test registration endpoint
           if curl -s -X POST https://panel.weekilaw.com/api/auth/phone/send-register-otp \
             -H 'Content-Type: application/json' \
             -d '{"phone":"09123456789"}' 2>/dev/null | grep -q '"success":true'; then
@@ -199,4 +183,4 @@ jobs:
             echo "⚠️ Registration endpoint test failed"
           fi
 
-          echo "Backend deployment completed successfully!"
+          echo "✅ Backend deployment completed!"
