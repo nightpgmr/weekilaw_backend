@@ -83,7 +83,7 @@ jobs:
     # ----------------------------
     - name: Package backend
       run: |
-        tar -czf backend.tar.gz \
+        tar -czf backend.tar.gz --ignore-failed-read \
           --exclude=.git \
           --exclude=node_modules \
           --exclude=vendor \
