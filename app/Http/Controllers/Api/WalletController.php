@@ -255,42 +255,98 @@ class WalletController extends Controller
 
     /**
      * Payment callback from SEP
+     * SEP sends data as POST form fields, not query parameters
      */
     public function callback(Request $request)
     {
         try {
-            $token = $request->query('Token');
-            $resNum = $request->query('ResNum');
-            $state = $request->query('State');
-            $refNum = $request->query('RefNum');
-            $traceNo = $request->query('TraceNo');
+            // SEP sends data as POST body (form fields), use input() to get from either POST or query
+            $token = $request->input('Token');
+            $resNum = $request->input('ResNum');
+            $state = $request->input('State');
+            $refNum = $request->input('RefNum');
+            $traceNo = $request->input('TraceNo');
+            $status = $request->input('Status');
+            $mid = $request->input('MID');
 
-            Log::info('SEP Callback received:', [
+            \Log::info('SEP Callback received:', [
                 'token' => $token,
                 'res_num' => $resNum,
                 'state' => $state,
+                'status' => $status,
                 'ref_num' => $refNum,
                 'trace_no' => $traceNo,
+                'mid' => $mid,
+                'all_input' => $request->all(),
             ]);
 
-            if (!$token || !$resNum) {
+            if (!$resNum) {
+                \Log::error('SEP Callback: Missing ResNum parameter');
                 return redirect(config('app.frontend_url', 'http://localhost:3000') . '/account?payment=failed&message=Invalid parameters');
             }
 
-            // Find transaction by token
-            $transaction = WalletTransaction::where('payment_reference', $token)
-                ->where('status', 'pending')
+            // Find transaction by ResNum stored in metadata
+            // ResNum format: TXN-{transaction_id}-{timestamp} or GOV-TXN-{transaction_id}-{timestamp}
+            $transaction = WalletTransaction::where('status', 'pending')
+                ->where(function ($query) use ($resNum, $token) {
+                    // Try to find by ResNum in metadata
+                    $query->whereJsonContains('metadata->res_num', $resNum);
+                    // Or by token as fallback
+                    if ($token) {
+                        $query->orWhere('payment_reference', $token);
+                    }
+                })
                 ->first();
 
             if (!$transaction) {
+                \Log::error('SEP Callback: Transaction not found', [
+                    'res_num' => $resNum,
+                    'token' => $token,
+                ]);
                 return redirect(config('app.frontend_url', 'http://localhost:3000') . '/account?payment=failed&message=Transaction not found');
             }
 
-            // Check payment state - SEP returns different state codes
-            // State = 0 means successful payment
-            if ($state !== '0') {
-                $transaction->update(['status' => 'cancelled']);
-                return redirect(config('app.frontend_url', 'http://localhost:3000') . '/account?payment=cancelled&state=' . $state);
+            \Log::info('Transaction found:', [
+                'transaction_id' => $transaction->id,
+                'user_id' => $transaction->user_id,
+                'amount' => $transaction->amount,
+            ]);
+
+            // Check payment state - SEP returns State field
+            // State = "OK" or Status = 1 means successful payment at gateway
+            // State = "CanceledByUser" or Status = 3 means user cancelled
+            $isSuccess = ($state === 'OK') || ($status == '1') || ($status == 1);
+            $isCancelled = ($state === 'CanceledByUser') || ($status == '3') || ($status == 3);
+
+            \Log::info('Payment state check:', [
+                'state' => $state,
+                'status' => $status,
+                'is_success' => $isSuccess,
+                'is_cancelled' => $isCancelled,
+            ]);
+
+            if ($isCancelled) {
+                $transaction->update([
+                    'status' => 'cancelled',
+                    'metadata' => array_merge($transaction->metadata ?? [], [
+                        'cancelled_at' => now()->toISOString(),
+                        'state' => $state,
+                        'status' => $status,
+                    ]),
+                ]);
+                return redirect(config('app.frontend_url', 'http://localhost:3000') . '/account?payment=cancelled');
+            }
+
+            if (!$isSuccess) {
+                $transaction->update([
+                    'status' => 'failed',
+                    'metadata' => array_merge($transaction->metadata ?? [], [
+                        'failed_at' => now()->toISOString(),
+                        'state' => $state,
+                        'status' => $status,
+                    ]),
+                ]);
+                return redirect(config('app.frontend_url', 'http://localhost:3000') . '/account?payment=failed&state=' . ($state ?? $status));
             }
 
             // Verify payment with SEP

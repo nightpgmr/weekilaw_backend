@@ -17,9 +17,8 @@ class SEPPaymentService
         $this->merchantId = config('services.sep.merchant_id', '');
         $this->terminalId = config('services.sep.terminal_id', '');
         $this->sandbox = config('services.sep.sandbox', true);
-        $this->baseUrl = $this->sandbox
-            ? 'https://sep.shaparak.ir/OnlinePG/OnlinePG'
-            : 'https://sep.shaparak.ir/OnlinePG/OnlinePG';
+        // SEP API URL - same for sandbox and production for token requests
+        $this->baseUrl = 'https://sep.shaparak.ir/OnlinePG/OnlinePG';
     }
 
     /**
@@ -77,9 +76,8 @@ class SEPPaymentService
 
             if ($response->successful() && isset($responseData['status']) && $responseData['status'] == 1) {
                 $token = $responseData['token'];
-                $paymentUrl = $this->sandbox
-                    ? "https://sandbox.sep.ir/OnlinePG/SendToken?token={$token}"
-                    : "https://sep.ir/OnlinePG/SendToken?token={$token}";
+                // Production URL for sending token to payment gateway
+                $paymentUrl = "https://sep.shaparak.ir/OnlinePG/SendToken?token={$token}";
 
                 return [
                     'success' => true,

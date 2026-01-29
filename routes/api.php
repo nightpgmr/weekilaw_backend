@@ -96,7 +96,8 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 // Wallet Routes
-Route::get('/wallet/callback', [WalletController::class, 'callback'])
+// SEP Bank sends callback as POST with form data
+Route::post('/wallet/callback', [WalletController::class, 'callback'])
     ->name('api.wallet.callback');
 
 Route::middleware('auth:sanctum')->group(function () {
