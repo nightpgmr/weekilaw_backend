@@ -37,8 +37,8 @@ return [
 
     'kavenegar' => [
         'api_key' => env('KAVENEGAR_API_KEY'),
-        'template' => env('KAVENEGAR_TEMPLATE', 'liantemp'),
-        'dev_code' => env('OTP_DEV_CODE', '12345'),
+        'template' => env('KAVENEGAR_TEMPLATE', 'weekilaw'),
+        'dev_code' => env('OTP_DEV_CODE', '1234'),
     ],
 
     'google' => [
@@ -48,8 +48,8 @@ return [
     ],
 
     'sep' => [
-        'merchant_id' => env('SEP_MERCHANT_ID', ''),
-        'terminal_id' => env('SEP_TERMINAL_ID', ''),
+        'terminal_id' => env('SEP_TERMINAL_ID'),
+        'merchant_id' => env('SEP_MERCHANT_ID'),
         'sandbox' => env('SEP_SANDBOX', true),
     ],
 

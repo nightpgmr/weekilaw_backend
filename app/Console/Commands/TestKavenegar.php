@@ -63,9 +63,9 @@ class TestKavenegar extends Command
 
             // Test template
             $this->info("🔍 Testing template '{$template}'...");
-            $response = Http::timeout(10)->post("https://api.kavenegar.com/v1/{$apiKey}/verify/lookup.json", [
-                'receptor' => '09123456789',
-                'token' => '123456',
+            $response = Http::timeout(10)->get("https://api.kavenegar.com/v1/{$apiKey}/verify/lookup.json", [
+                'receptor' => '+989121111111',
+                'token' => '1234',
                 'template' => $template,
             ]);
 

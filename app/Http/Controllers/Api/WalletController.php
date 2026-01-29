@@ -102,7 +102,9 @@ class WalletController extends Controller
             ]);
 
             // Request government payment from SEP
-            $callbackUrl = config('app.url') . '/api/wallet/callback';
+            // Ensure callback URL is properly formatted (no trailing slash, HTTPS in production)
+            $baseUrl = rtrim(config('app.url'), '/');
+            $callbackUrl = $baseUrl . '/api/wallet/callback';
             $resNum = 'GOV-TXN-' . $transaction->id . '-' . time();
 
             $paymentRequest = $this->sepPaymentService->requestPayment(
@@ -152,6 +154,8 @@ class WalletController extends Controller
      */
     public function addMoney(Request $request)
     {
+        \Log::info('addMoney called with request:', $request->all());
+
         try {
             $validator = Validator::make($request->all(), [
                 'amount' => 'required|numeric|min:1000|max:100000000', // Min 1000 Toman, Max 10M Toman
@@ -181,8 +185,20 @@ class WalletController extends Controller
             ]);
 
             // Request payment from SEP
-            $callbackUrl = config('app.url') . '/api/wallet/callback';
+            // Ensure callback URL is properly formatted (no trailing slash, HTTPS in production)
+            $baseUrl = rtrim(config('app.url'), '/');
+            $callbackUrl = $baseUrl . '/api/wallet/callback';
             $resNum = 'TXN-' . $transaction->id . '-' . time();
+
+            // Debug: Log service state
+            \Log::info('Wallet Controller Debug:', [
+                'service_class' => get_class($this->sepPaymentService),
+                'amount' => $amount * 10,
+                'resNum' => $resNum,
+                'callbackUrl' => $callbackUrl,
+                'base_url' => $baseUrl,
+                'app_url_config' => config('app.url'),
+            ]);
 
             $paymentRequest = $this->sepPaymentService->requestPayment(
                 $amount * 10, // SEP works with Rials
@@ -194,9 +210,20 @@ class WalletController extends Controller
 
             if (!$paymentRequest['success']) {
                 $transaction->update(['status' => 'failed']);
+                
+                // Log detailed error information
+                \Log::error('SEP Payment Request Failed:', [
+                    'error_message' => $paymentRequest['message'] ?? 'Unknown error',
+                    'error_code' => $paymentRequest['error_code'] ?? null,
+                    'callback_url' => $callbackUrl,
+                    'res_num' => $resNum,
+                    'amount' => $amount * 10,
+                ]);
+                
                 return response()->json([
                     'success' => false,
                     'message' => $paymentRequest['message'] ?? 'Payment request failed',
+                    'error_code' => $paymentRequest['error_code'] ?? null,
                 ], 400);
             }
 

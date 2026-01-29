@@ -31,6 +31,8 @@ Route::post('/lawyers/search', [LawyerSearchController::class, 'search'])
 // Lawyer Verification API
 Route::post('/lawyers/verify', [LawyerSearchController::class, 'verify'])
     ->name('api.lawyers.verify');
+    
+Route::post('/chat', [ChatController::class, 'ask']);
 
 // AI Chat API (Public - no authentication required for chatting)
 Route::post('/chat/ask', [ChatController::class, 'ask'])

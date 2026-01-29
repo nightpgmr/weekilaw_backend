@@ -65,7 +65,15 @@ class SEPPaymentService
             $response = Http::timeout(30)->post("{$this->baseUrl}", $payload);
 
             $responseData = $response->json();
-            Log::info('SEP Payment Request Response:', $responseData);
+            $responseStatus = $response->status();
+            $responseBody = $response->body();
+            
+            Log::info('SEP Payment Request Response:', [
+                'status_code' => $responseStatus,
+                'response_data' => $responseData,
+                'response_body' => $responseBody,
+                'callback_url' => $redirectUrl,
+            ]);
 
             if ($response->successful() && isset($responseData['status']) && $responseData['status'] == 1) {
                 $token = $responseData['token'];
@@ -81,10 +89,21 @@ class SEPPaymentService
                 ];
             }
 
+            // Extract error message - SEP returns errorDesc in Persian
+            $errorMessage = $responseData['errorDesc'] ?? $responseData['error'] ?? 'Payment request failed';
+            $errorCode = $responseData['status'] ?? $responseStatus ?? null;
+            
+            Log::error('SEP Payment Request Failed:', [
+                'error_message' => $errorMessage,
+                'error_code' => $errorCode,
+                'response_data' => $responseData,
+                'callback_url' => $redirectUrl,
+            ]);
+
             return [
                 'success' => false,
-                'message' => $responseData['errorDesc'] ?? 'Payment request failed',
-                'error_code' => $responseData['status'] ?? null,
+                'message' => $errorMessage,
+                'error_code' => $errorCode,
             ];
 
         } catch (\Exception $e) {

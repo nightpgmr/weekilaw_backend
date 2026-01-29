@@ -45,11 +45,14 @@ class OTPService
                 ];
             }
 
-            // Clean phone number (remove any non-numeric characters)
-            $cleanPhone = preg_replace('/\D/', '', $phone);
+            // Clean phone number (remove any non-numeric characters except +)
+            $cleanPhone = preg_replace('/[^\d+]/', '', $phone);
 
-            // Validate phone number format
-            if (!preg_match('/^09\d{9}$/', $phone)) {
+            // Validate and format phone number
+            if (preg_match('/^09\d{9}$/', $phone)) {
+                // Convert Iranian mobile format (09123456789) to international (+989123456789)
+                $cleanPhone = '+98' . substr($phone, 1);
+            } elseif (!preg_match('/^\+989\d{9}$/', $cleanPhone)) {
                 return [
                     'success' => false,
                     'message' => 'فرمت شماره موبایل نامعتبر است',
@@ -57,8 +60,8 @@ class OTPService
                 ];
             }
 
-            // Kavenegar API call
-            $response = Http::timeout(10)->post('https://api.kavenegar.com/v1/' . $this->apiKey . '/verify/lookup.json', [
+            // Kavenegar API call using GET method with query parameters
+            $response = Http::timeout(10)->get('https://api.kavenegar.com/v1/' . $this->apiKey . '/verify/lookup.json', [
                 'receptor' => $cleanPhone,
                 'token' => $otpCode,
                 'template' => $this->template,
