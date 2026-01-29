@@ -100,6 +100,10 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::post('/wallet/callback', [WalletController::class, 'callback'])
     ->name('api.wallet.callback');
 
+// SEP Payment callback - same path as Node.js server (registered in SEP panel)
+Route::post('/payment/payment-listener', [WalletController::class, 'callback'])
+    ->name('api.payment.listener');
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wallet/balance', [WalletController::class, 'getBalance'])
         ->name('api.wallet.balance');

@@ -102,9 +102,9 @@ class WalletController extends Controller
             ]);
 
             // Request government payment from SEP
-            // Ensure callback URL is properly formatted (no trailing slash, HTTPS in production)
+            // Use the same callback path as Node.js (registered in SEP panel)
             $baseUrl = rtrim(config('app.url'), '/');
-            $callbackUrl = $baseUrl . '/api/wallet/callback';
+            $callbackUrl = $baseUrl . '/api/payment/payment-listener';
             $resNum = 'GOV-TXN-' . $transaction->id . '-' . time();
 
             $paymentRequest = $this->sepPaymentService->requestPayment(
@@ -185,9 +185,9 @@ class WalletController extends Controller
             ]);
 
             // Request payment from SEP
-            // Ensure callback URL is properly formatted (no trailing slash, HTTPS in production)
+            // Use the same callback path as Node.js (registered in SEP panel)
             $baseUrl = rtrim(config('app.url'), '/');
-            $callbackUrl = $baseUrl . '/api/wallet/callback';
+            $callbackUrl = $baseUrl . '/api/payment/payment-listener';
             $resNum = 'TXN-' . $transaction->id . '-' . time();
 
             // Debug: Log service state
@@ -210,6 +210,7 @@ class WalletController extends Controller
 
             if (!$paymentRequest['success']) {
                 $transaction->update(['status' => 'failed']);
+
                 
                 // Log detailed error information
                 \Log::error('SEP Payment Request Failed:', [
@@ -219,7 +220,7 @@ class WalletController extends Controller
                     'res_num' => $resNum,
                     'amount' => $amount * 10,
                 ]);
-                
+
                 return response()->json([
                     'success' => false,
                     'message' => $paymentRequest['message'] ?? 'Payment request failed',
