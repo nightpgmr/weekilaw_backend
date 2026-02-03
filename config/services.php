@@ -51,6 +51,11 @@ return [
         'terminal_id' => env('SEP_TERMINAL_ID'),
         'merchant_id' => env('SEP_MERCHANT_ID'),
         'sandbox' => env('SEP_SANDBOX', true),
+        'callback_url' => env('SEP_CALLBACK_URL'),
+        // If callback_path is not set and callback_url is set, defaults to /api/wallet/callback (direct backend)
+        // If callback_path is set, uses that path (for proxy scenarios)
+        'callback_path' => env('SEP_CALLBACK_PATH'), // Optional: defaults to /api/wallet/callback if not set
+        'callback_domain_only' => env('SEP_CALLBACK_DOMAIN_ONLY', false), // Set to true if SEP only whitelists domain (not full path)
     ],
 
 ];

@@ -32,7 +32,12 @@ class Cors
         $origin = $request->headers->get('Origin');
 
         // Check if the origin is allowed
-        $allowedOrigin = in_array($origin, $allowedOrigins) ? $origin : 'http://localhost:3000';
+        // Allow null origin for file:// protocol (local testing)
+        if ($origin === null || $origin === 'null') {
+            $allowedOrigin = '*'; // Allow all origins for file:// requests
+        } else {
+            $allowedOrigin = in_array($origin, $allowedOrigins) ? $origin : 'http://localhost:3000';
+        }
 
         // Handle preflight OPTIONS requests
         if ($request->isMethod('OPTIONS')) {

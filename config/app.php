@@ -56,6 +56,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | This URL is used for redirecting users after payment callbacks and other
+    | frontend redirects. Set this to your production frontend URL.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'https://weekilaw.com'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

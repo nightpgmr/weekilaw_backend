@@ -3,122 +3,110 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\Services\ExternalAuthService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
 class UserController extends Controller
 {
+    protected ExternalAuthService $authService;
+
+    public function __construct(ExternalAuthService $authService)
+    {
+        $this->authService = $authService;
+    }
+
     /**
      * Update user profile
+     * Note: This may need to be updated if the external API has a profile update endpoint
      */
     public function updateProfile(Request $request)
     {
-        try {
-            $user = Auth::user();
-
-            $validator = Validator::make($request->all(), [
-                'first_name' => 'nullable|string|max:255',
-                'last_name' => 'nullable|string|max:255',
-            ]);
-
-            if ($validator->fails()) {
+        // For now, return error as profile update may need to be handled by external API
+        // TODO: Implement if external API provides profile update endpoint
             return response()->json([
                 'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-            }
-
-            $user->update([
-                'first_name' => $request->first_name,
-                'last_name' => $request->last_name,
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Profile updated successfully',
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update profile',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+            'message' => 'Profile update not yet implemented with new API',
+        ], 501);
     }
 
     /**
      * Delete user account
+     * Note: This may need to be updated if the external API has an account deletion endpoint
      */
     public function deleteAccount(Request $request)
     {
-        try {
-            $user = Auth::user();
-
-            // Validate password if provided (optional security measure)
-            if ($request->has('password') && $request->password) {
-                if (!Hash::check($request->password, $user->password)) {
+        // For now, return error as account deletion may need to be handled by external API
+        // TODO: Implement if external API provides account deletion endpoint
                     return response()->json([
                         'success' => false,
-                        'message' => 'Invalid password'
-                    ], 422);
-                }
-            }
-
-            // Delete the user
-            $user->delete();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Account deleted successfully'
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete account',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+            'message' => 'Account deletion not yet implemented with new API',
+        ], 501);
     }
 
     /**
-     * Get user profile
+     * Get user profile from external API
      */
     public function getProfile(Request $request)
     {
         try {
-            $user = Auth::user();
+            // Get access token from request
+            $token = $request->bearerToken();
+            
+            // Also check Authorization header directly as fallback
+            if (!$token) {
+                $authHeader = $request->header('Authorization');
+                if ($authHeader && str_starts_with($authHeader, 'Bearer ')) {
+                    $token = substr($authHeader, 7);
+                }
+            }
 
-            return response()->json([
-                'success' => true,
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'email' => $user->email,
-                    'phone' => $user->phone,
-                    'wallet_balance' => (float) $user->wallet_balance,
-                ]
+            if (!$token) {
+                \Log::warning('Profile request without token', [
+                    'has_authorization_header' => $request->hasHeader('Authorization'),
+                    'authorization_header_preview' => $request->hasHeader('Authorization') 
+                        ? substr($request->header('Authorization'), 0, 30) . '...' 
+                        : 'N/A',
+                    'ip' => $request->ip(),
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'توکن احراز هویت مورد نیاز است',
+                    'code' => 'TOKEN_REQUIRED',
+                ], 401);
+            }
+            
+            \Log::info('Profile request received', [
+                'has_token' => true,
+                'token_length' => strlen($token),
+                'token_preview' => substr($token, 0, 20) . '...',
             ]);
+
+            // Call external API to get profile
+            $result = $this->authService->getProfile($token);
+
+            if ($result['success'] && isset($result['data']['success']) && $result['data']['success']) {
+                \Log::info('Profile retrieved successfully from external API');
+                return response()->json($result['data']);
+            } else {
+                \Log::warning('Failed to get profile from external API', [
+                    'status' => $result['status'] ?? 'unknown',
+                    'message' => $result['data']['message'] ?? 'Unknown error',
+                    'code' => $result['data']['code'] ?? null,
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['data']['message'] ?? 'خطا در دریافت پروفایل',
+                    'code' => $result['data']['code'] ?? null,
+                ], $result['status'] ?? 500);
+            }
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to get profile',
+                'message' => 'خطا در دریافت پروفایل',
                 'error' => $e->getMessage()
             ], 500);
         }

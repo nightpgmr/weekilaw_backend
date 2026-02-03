@@ -41,6 +41,54 @@ class SEPPaymentService
     ): array
     {
         try {
+            // Ensure callback URL is properly formatted for SEP
+            // SEP is very strict about URL format - must be exact match with whitelist
+            // Old browsers might send URLs with different encoding or format, so we normalize here
+            $redirectUrl = trim($redirectUrl);
+            
+            // Parse URL to normalize it
+            $parsedUrl = parse_url($redirectUrl);
+            
+            if ($parsedUrl === false) {
+                Log::error('SEP Callback URL parse failed:', ['url' => $redirectUrl]);
+                return [
+                    'success' => false,
+                    'message' => 'Invalid callback URL format',
+                ];
+            }
+            
+            // Ensure HTTPS (SEP requires HTTPS for callbacks)
+            $scheme = isset($parsedUrl['scheme']) ? strtolower($parsedUrl['scheme']) : 'https';
+            if ($scheme !== 'https') {
+                $scheme = 'https';
+                Log::warning('SEP Callback URL scheme changed to HTTPS:', ['original' => $redirectUrl]);
+            }
+            
+            // Normalize host (lowercase, remove default ports)
+            $host = isset($parsedUrl['host']) ? strtolower($parsedUrl['host']) : '';
+            $port = isset($parsedUrl['port']) ? $parsedUrl['port'] : null;
+            
+            // Remove default ports (80 for HTTP, 443 for HTTPS)
+            if ($port == 80 || $port == 443) {
+                $port = null;
+            }
+            
+            // Build normalized path (remove trailing slash, ensure leading slash)
+            $path = isset($parsedUrl['path']) ? $parsedUrl['path'] : '/';
+            $path = '/' . ltrim($path, '/');
+            $path = rtrim($path, '/');
+            if (empty($path)) {
+                $path = '/';
+            }
+            
+            // Remove query string and fragment (SEP doesn't allow them in callback URL)
+            // Old browsers might add query parameters, so we strip them
+            $redirectUrl = $scheme . '://' . $host;
+            if ($port !== null) {
+                $redirectUrl .= ':' . $port;
+            }
+            $redirectUrl .= $path;
+            
             $payload = [
                 'action' => 'token',
                 'TerminalId' => $this->terminalId,
@@ -48,6 +96,20 @@ class SEPPaymentService
                 'ResNum' => $resNum,
                 'RedirectUrl' => $redirectUrl,
             ];
+            
+            // Log the exact URL being sent to SEP for debugging
+            Log::info('SEP Callback URL being sent:', [
+                'original_url' => $redirectUrl,
+                'normalized_url' => $redirectUrl,
+                'url_length' => strlen($redirectUrl),
+                'url_encoded' => urlencode($redirectUrl),
+                'parsed_components' => [
+                    'scheme' => $scheme,
+                    'host' => $host,
+                    'port' => $port,
+                    'path' => $path,
+                ],
+            ]);
 
             // Add optional cell number
             if (!empty($cellNumber)) {
@@ -72,14 +134,43 @@ class SEPPaymentService
                 'status_code' => $responseStatus,
                 'response_data' => $responseData,
                 'response_body' => $responseBody,
-                'callback_url' => $redirectUrl,
+                'callback_url_sent' => $redirectUrl,
+                'callback_url_length' => strlen($redirectUrl),
             ]);
+
+            // Check for callback URL errors specifically
+            if (!$response->successful() || (isset($responseData['status']) && $responseData['status'] != 1)) {
+                $errorMessage = $responseData['errorDesc'] ?? $responseData['error'] ?? $responseBody ?? 'Unknown error';
+                
+                // Log detailed error for callback URL issues
+                if (stripos($errorMessage, 'callback') !== false || 
+                    stripos($errorMessage, 'بازگشت') !== false ||
+                    stripos($errorMessage, 'آدرس') !== false) {
+                    Log::error('SEP Callback URL Error:', [
+                        'error_message' => $errorMessage,
+                        'callback_url_sent' => $redirectUrl,
+                        'expected_format' => 'https://payment.weekilaw.com/api/payment/payment-listener',
+                        'url_matches' => $redirectUrl === 'https://payment.weekilaw.com/api/payment/payment-listener',
+                        'response_full' => $responseData,
+                    ]);
+                }
+            }
 
             if ($response->successful() && isset($responseData['status']) && $responseData['status'] == 1) {
                 $token = $responseData['token'];
-                $paymentUrl = $this->sandbox
-                    ? "https://sandbox.sep.ir/OnlinePG/SendToken?token={$token}"
-                    : "https://sep.ir/OnlinePG/SendToken?token={$token}";
+                // SEP payment gateway URLs
+                // SEP typically uses sep.shaparak.ir for both sandbox and production
+                // The difference is in the credentials (sandbox vs production terminal_id/merchant_id)
+                // Some implementations may use sandbox.sep.shaparak.ir, but standard is sep.shaparak.ir for both
+                // If sandbox URL doesn't work, SEP uses the same URL for both environments
+                $paymentUrl = "https://sep.shaparak.ir/OnlinePG/SendToken?token={$token}";
+                
+                Log::info('SEP Payment URL generated:', [
+                    'sandbox' => $this->sandbox,
+                    'payment_url' => $paymentUrl,
+                    'token' => $token,
+                    'note' => 'SEP uses same URL for sandbox and production, difference is in credentials',
+                ]);
 
                 return [
                     'success' => true,
