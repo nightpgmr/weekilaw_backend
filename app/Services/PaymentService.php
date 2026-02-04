@@ -685,15 +685,17 @@ class PaymentService
                 ],
             ];
 
-            // Merge gateway response with verification details
-            $gatewayResponseUpdate = array_merge(
-                $paymentArray['gateway_response'] ?? [],
-                $verifyResult['gatewayResponse'] ?? [],
-                [
-                    'redirect_platform' => $platform,
-                    'verified_at' => new \MongoDB\BSON\UTCDateTime(),
-                ]
-            );
+            // Merge gateway response with verification details (gateway_response may be BSONDocument from MongoDB)
+            $existing = $paymentArray['gateway_response'] ?? [];
+            $existing = is_array($existing) ? $existing : $this->convertBSONToArray($existing);
+            $existing = is_array($existing) ? $existing : [];
+            $verified = $verifyResult['gatewayResponse'] ?? [];
+            $verified = is_array($verified) ? $verified : $this->convertBSONToArray($verified);
+            $verified = is_array($verified) ? $verified : [];
+            $gatewayResponseUpdate = array_merge($existing, $verified, [
+                'redirect_platform' => $platform,
+                'verified_at' => new \MongoDB\BSON\UTCDateTime(),
+            ]);
 
             $updateData['$set']['gateway_response'] = $gatewayResponseUpdate;
 
