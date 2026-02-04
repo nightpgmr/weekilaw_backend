@@ -572,7 +572,19 @@ class PaymentService
             }
 
             $paymentArray = iterator_to_array($payment);
-            
+
+            // Debug: log payment record fields relevant to coin update (plan_id may be MongoDB _id or "coin_package_N")
+            $paymentKeys = array_keys($paymentArray);
+            Log::info('[PaymentService] Payment record loaded for verification (debug)', [
+                'res_num' => $resNum,
+                'payment_keys' => $paymentKeys,
+                'plan_id' => $paymentArray['plan_id'] ?? null,
+                'user_id' => isset($paymentArray['user_id']) ? (is_object($paymentArray['user_id']) ? (string) $paymentArray['user_id'] : $paymentArray['user_id']) : null,
+                'payment_type' => $paymentArray['payment_type'] ?? null,
+                'coins' => $paymentArray['coins'] ?? null,
+                'status' => $paymentArray['status'] ?? null,
+            ]);
+
             // Get gateway ID from payment record if not provided
             if (!$gatewayId) {
                 $gatewayId = $paymentArray['gateway_id'] ?? 'saman_bank';
@@ -707,54 +719,92 @@ class PaymentService
             Log::info('[PaymentService] Payment record updated');
 
             // ========== HANDLE COIN PACKAGE PAYMENTS ==========
+            // plan_id is stored as purchase ID: either MongoDB _id (e.g. 6974e12ae2fd163569571ae9) or "coin_package_N"
+            // We also store payment_type and coins on the payment record at initiate
             $planId = $paymentArray['plan_id'] ?? null;
             $userId = $paymentArray['user_id'] ?? null;
+            $paymentType = $paymentArray['payment_type'] ?? null;
+            $storedCoins = isset($paymentArray['coins']) ? (int) $paymentArray['coins'] : null;
 
-            if ($planId && $userId && str_starts_with($planId, 'coin_package_')) {
+            // Debug: log what we have from payment record (userId may be BSON ObjectId)
+            $planIdStr = is_object($planId) ? (string) $planId : $planId;
+            $userIdStr = is_object($userId) ? (string) $userId : (string) $userId;
+            Log::info('[PaymentService] Coin package check (debug)', [
+                'plan_id' => $planIdStr,
+                'plan_id_type' => gettype($planId),
+                'user_id' => $userIdStr,
+                'user_id_type' => gettype($userId),
+                'payment_type' => $paymentType,
+                'stored_coins' => $storedCoins,
+                'match_plan_id_prefix' => is_string($planId) && str_starts_with((string) $planId, 'coin_package_'),
+                'is_coin_package_type' => $paymentType === 'coin_package',
+            ]);
+
+            // Use payment_type === 'coin_package' and stored 'coins' field (plan_id is often package MongoDB _id, not "coin_package_N")
+            $isCoinPackage = ($paymentType === 'coin_package') && $userId;
+            $coinAmount = null;
+            if ($isCoinPackage && $storedCoins > 0) {
+                $coinAmount = $storedCoins;
+            } elseif ($planId && $userId && is_string($planId) && str_starts_with($planId, 'coin_package_')) {
+                $coinAmount = (int) str_replace('coin_package_', '', $planId);
+            }
+
+            if ($isCoinPackage && $coinAmount > 0) {
                 Log::info('[PaymentService] Processing coin package payment', [
                     'payment_id' => (string) $paymentArray['_id'],
-                    'user_id' => is_object($userId) ? (string) $userId : $userId,
-                    'plan_id' => $planId,
+                    'user_id' => $userIdStr,
+                    'plan_id' => $planIdStr,
+                    'coin_amount' => $coinAmount,
+                    'source' => $storedCoins > 0 ? 'stored_coins' : 'plan_id_prefix',
                 ]);
 
                 try {
-                    // Extract coin amount from plan_id (e.g., "coin_package_10" -> 10)
-                    $coinAmount = (int) str_replace('coin_package_', '', $planId);
-
-                    if ($coinAmount <= 0) {
-                        Log::error('[PaymentService] Invalid coin amount', ['plan_id' => $planId]);
-                        throw new \Exception("Invalid coin package ID");
-                    }
-
-                    Log::info('[PaymentService] Coin amount extracted', ['coins' => $coinAmount]);
-
                     // Get users collection
                     $usersCollection = $database->selectCollection('users');
 
-                    // Convert userId to ObjectId if needed
-                    $userIdObject = is_string($userId) && strlen($userId) === 24 && ctype_xdigit($userId)
-                        ? new \MongoDB\BSON\ObjectId($userId)
-                        : (is_object($userId) ? $userId : new \MongoDB\BSON\ObjectId($userId));
+                    // Convert userId to ObjectId (may come from MongoDB as BSON ObjectId)
+                    if (is_object($userId) && $userId instanceof \MongoDB\BSON\ObjectId) {
+                        $userIdObject = $userId;
+                    } elseif (is_string($userId) && strlen($userId) === 24 && ctype_xdigit($userId)) {
+                        $userIdObject = new \MongoDB\BSON\ObjectId($userId);
+                    } else {
+                        $userIdObject = new \MongoDB\BSON\ObjectId((string) $userId);
+                    }
 
                     // Get current user balance
                     $user = $usersCollection->findOne(['_id' => $userIdObject]);
                     $balanceBefore = $user ? ((int) ($user['coins'] ?? 0)) : 0;
                     $newBalance = $balanceBefore + $coinAmount;
 
-                    Log::info('[PaymentService] Updating user coins', [
+                    Log::info('[PaymentService] Updating user coins (before update)', [
+                        'user_id' => (string) $userIdObject,
                         'balance_before' => $balanceBefore,
                         'adding' => $coinAmount,
                         'balance_after' => $newBalance,
                     ]);
 
                     // Atomically increment user coins (matches Node.js $inc)
-                    $usersCollection->updateOne(
+                    $updateResult = $usersCollection->updateOne(
                         ['_id' => $userIdObject],
                         [
                             '$inc' => ['coins' => $coinAmount],
                             '$set' => ['updatedAt' => new \MongoDB\BSON\UTCDateTime()],
                         ]
                     );
+
+                    Log::info('[PaymentService] User coins update result', [
+                        'matched_count' => $updateResult->getMatchedCount(),
+                        'modified_count' => $updateResult->getModifiedCount(),
+                        'coins_added' => $coinAmount,
+                        'new_balance' => $newBalance,
+                    ]);
+
+                    if ($updateResult->getMatchedCount() === 0) {
+                        Log::error('[PaymentService] No user document matched for coin update', ['user_id' => (string) $userIdObject]);
+                    }
+                    if ($updateResult->getModifiedCount() === 0 && $updateResult->getMatchedCount() > 0) {
+                        Log::warning('[PaymentService] User matched but document not modified (possible duplicate or no change)');
+                    }
 
                     Log::info('[PaymentService] Added coins to user account', [
                         'coins_added' => $coinAmount,
@@ -769,6 +819,13 @@ class PaymentService
                     // Don't fail the payment if coin update fails - payment is still successful
                     // Coins can be added manually if needed
                 }
+            } else {
+                Log::info('[PaymentService] Skipping coin update', [
+                    'reason' => !$isCoinPackage ? 'not_coin_package_or_missing_user_id' : 'coin_amount_invalid_or_zero',
+                    'payment_type' => $paymentType,
+                    'stored_coins' => $storedCoins,
+                    'coin_amount_resolved' => $coinAmount,
+                ]);
             }
 
             Log::info('[PaymentService] PAYMENT VERIFIED AND COMPLETED SUCCESSFULLY');
