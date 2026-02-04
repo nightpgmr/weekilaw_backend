@@ -159,13 +159,11 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 // Wallet Routes (Legacy - kept for backward compatibility)
-// SEP Bank sends callback as POST with form data
+// SEP Bank sends callback as POST with form data. Use /wallet/callback for legacy wallet-only flow.
 Route::post('/wallet/callback', [WalletController::class, 'callback'])
     ->name('api.wallet.callback');
 
-// SEP Payment callback - same path as Node.js server (registered in SEP panel)
-Route::post('/payment/payment-listener', [WalletController::class, 'callback'])
-    ->name('api.payment.listener.legacy');
+// NOTE: POST /payment/payment-listener is handled by PaymentController::listener above (do not re-register here or it overrides and breaks the flow).
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wallet/balance', [WalletController::class, 'getBalance'])

@@ -14,8 +14,8 @@ class SEPPaymentService
 
     public function __construct()
     {
-        $this->merchantId = config('services.sep.merchant_id', '');
-        $this->terminalId = config('services.sep.terminal_id', '');
+        $this->merchantId = (string) (config('services.sep.merchant_id') ?? '');
+        $this->terminalId = (string) (config('services.sep.terminal_id') ?? '');
         $this->sandbox = config('services.sep.sandbox', true);
         // SEP API URL - same for sandbox and production for token requests
         $this->baseUrl = 'https://sep.shaparak.ir/OnlinePG/OnlinePG';
