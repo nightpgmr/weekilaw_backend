@@ -288,32 +288,71 @@ class SamanGateway extends BasePaymentGateway
         }
 
         try {
-            // Verify with Saman verification API
+            // Saman doc: POST VerifyTransaction with RefNum + TerminalNumber (Int64).
+            // If verify is not called within 30 minutes, Saman REVERSES the transaction (money goes back).
+            // Case-sensitive: RefNum, TerminalNumber (doc نکته ۴).
             $verifyPayload = [
-                'RefNum' => $refNum,
-                'TerminalNumber' => $this->terminalId,
+                'RefNum' => (string) $refNum,
+                'TerminalNumber' => (int) $this->terminalId,
             ];
 
-            // Configure HTTP client with SSL options (same as token request)
-            $httpClient = Http::timeout(30);
-            
-            // Disable SSL verification for local/development (Windows cURL certificate issue)
+            $httpClient = Http::timeout(30)
+                ->withHeaders([
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
+                ]);
+
             if (config('app.env') === 'local' || config('app.env') === 'development' || config('app.debug')) {
                 $httpClient = $httpClient->withoutVerifying();
             }
-            
-            $response = $httpClient->post($this->verifyUrl, $verifyPayload);
 
-            $result = $response->json();
+            $response = null;
+            $result = null;
+            $lastException = null;
+            $maxTries = 3;
+
+            for ($attempt = 1; $attempt <= $maxTries; $attempt++) {
+                try {
+                    $response = $httpClient->post($this->verifyUrl, $verifyPayload);
+                    $result = $response->json();
+                    break;
+                } catch (\Exception $e) {
+                    $lastException = $e;
+                    Log::warning('Saman verify request attempt failed', [
+                        'attempt' => $attempt,
+                        'max_tries' => $maxTries,
+                        'error' => $e->getMessage(),
+                    ]);
+                    if ($attempt < $maxTries) {
+                        usleep(500000); // 0.5s before retry (doc: retry if response not received)
+                    }
+                }
+            }
+
+            if ($result === null || $response === null) {
+                $msg = $lastException ? $lastException->getMessage() : 'No response from verify API';
+                $this->logError('Verification request failed after retries', $msg);
+                return [
+                    'success' => false,
+                    'verified' => false,
+                    'message' => 'خطا در ارتباط با درگاه تایید: ' . $msg,
+                ];
+            }
+
+            // Log raw Saman response for debugging (verify must succeed or money is reversed)
+            Log::info('Saman verify API raw response', [
+                'http_status' => $response->status(),
+                'result_code' => $result['ResultCode'] ?? null,
+                'success' => $result['Success'] ?? null,
+                'result_description' => $result['ResultDescription'] ?? null,
+            ]);
 
             if (!$response->successful() || !isset($result['ResultCode']) || $result['ResultCode'] !== 0 || !($result['Success'] ?? false)) {
                 $errorMessage = $result['ResultDescription'] ?? 'تایید ناموفق';
-                
                 $this->logError('Verification failed', $errorMessage, [
                     'result_code' => $result['ResultCode'] ?? null,
                     'response' => $result,
                 ]);
-
                 return [
                     'success' => false,
                     'verified' => false,
@@ -323,8 +362,8 @@ class SamanGateway extends BasePaymentGateway
                 ];
             }
 
-            // Extract transaction details
-            $transactionDetail = $result['TransactionDetail'] ?? [];
+            // Doc: TransactionDetail may appear as "TransactionDetail" or " TransactionDetail"
+            $transactionDetail = $result['TransactionDetail'] ?? $result[' TransactionDetail'] ?? [];
             $amountInRial = $transactionDetail['OrginalAmount'] ?? 0;
             $amountInToman = $this->convertRialToToman($amountInRial);
 

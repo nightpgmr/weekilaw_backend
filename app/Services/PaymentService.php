@@ -290,10 +290,11 @@ class PaymentService
                 ];
             }
 
-            // Extract amount and coins
-            // Amount can be in Toman or Rial - check currency field
-            $amount = (int) ($purchaseItem['price'] ?? $purchaseItem['amount'] ?? $purchaseItem['toman'] ?? 0);
-            $coins = (int) ($purchaseItem['coins'] ?? $purchaseItem['coinAmount'] ?? 0);
+            // Extract amount (price in Toman/Rial) and coins (number of coins in package)
+            // MongoDB coin packages use 'price' for Toman and 'amount' for coin count
+            $amount = (int) ($purchaseItem['price'] ?? $purchaseItem['toman'] ?? $purchaseItem['amount'] ?? 0);
+            // Coin count: same priority as getCoinPackages - 'amount' is often the coin count in this schema
+            $coins = (int) ($purchaseItem['coins'] ?? $purchaseItem['amount'] ?? $purchaseItem['coinAmount'] ?? $purchaseItem['coin_amount'] ?? 0);
             $currency = $purchaseItem['currency'] ?? 'IRT'; // Default to Toman
 
             if ($amount <= 0) {
@@ -747,6 +748,17 @@ class PaymentService
                 $coinAmount = $storedCoins;
             } elseif ($planId && $userId && is_string($planId) && str_starts_with($planId, 'coin_package_')) {
                 $coinAmount = (int) str_replace('coin_package_', '', $planId);
+            } elseif ($isCoinPackage && $planId && (($storedCoins === null || $storedCoins === 0))) {
+                // Fallback: stored coins was 0 (e.g. old bug) - fetch package by plan_id and get coin count
+                $package = $this->getPurchaseItem('coinpackages', (string) $planId);
+                if ($package) {
+                    $coinAmount = (int) ($package['coins'] ?? $package['amount'] ?? $package['coinAmount'] ?? 0);
+                    Log::info('[PaymentService] Coin amount resolved from package (fallback)', [
+                        'plan_id' => $planIdStr,
+                        'coin_amount' => $coinAmount,
+                        'package_keys' => array_keys($package),
+                    ]);
+                }
             }
 
             if ($isCoinPackage && $coinAmount > 0) {
