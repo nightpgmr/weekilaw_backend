@@ -65,10 +65,18 @@ class MongoUserService
             
             // Test connection
             $this->client->selectDatabase($this->database)->command(['ping' => 1]);
+            $isLocalhost = (strpos($uri, 'localhost') !== false || strpos($uri, '127.0.0.1') !== false);
             Log::info('[MongoUserService] MongoDB connection successful', [
                 'database' => $this->database,
                 'collection' => $this->collectionName,
+                'is_localhost' => $isLocalhost,
             ]);
+            if ($isLocalhost && config('app.env') === 'production') {
+                $msg = 'PRODUCTION: MONGODB_URI is localhost. Set MONGODB_URI in .env to your MongoDB Cloud URI (e.g. mongodb://USER:PASS@HOST:27017/?authSource=admin). User lookup will fail until fixed.';
+                Log::error('[MongoUserService] ' . $msg, ['database' => $this->database]);
+            } elseif ($isLocalhost) {
+                Log::warning('[MongoUserService] Using localhost MongoDB. For production, set MONGODB_URI in .env to your cloud URI.', ['database' => $this->database]);
+            }
         } catch (\Exception $e) {
             Log::error('[MongoUserService] Failed to connect to MongoDB', [
                 'error' => $e->getMessage(),

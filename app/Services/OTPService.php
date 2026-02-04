@@ -17,25 +17,44 @@ class OTPService
         $this->template = config('services.kavenegar.template', 'liantemp');
         $this->devCode = (string) (config('services.kavenegar.dev_code') ?? env('OTP_DEV_CODE', '12345'));
 
-        if (config('app.env') !== 'production') {
-            Log::debug('[OTP Service] Initialized', [
-                'env' => config('app.env'),
-                'dev_code_set' => !empty($this->devCode),
-                'dev_code_length' => strlen($this->devCode),
-                'kavenegar_configured' => !empty($this->apiKey),
-            ]);
-        }
+        // [OTP DEBUG] Always log config on boot so we can see server values
+        Log::info('[OTP DEBUG] OTPService constructed', [
+            'APP_ENV' => config('app.env'),
+            'OTP_DEV_MODE_env' => env('OTP_DEV_MODE'),
+            'otp_dev_mode_config' => config('services.kavenegar.otp_dev_mode'),
+            'kavenegar_api_key_set' => !empty($this->apiKey),
+            'kavenegar_api_key_preview' => $this->apiKey ? (substr($this->apiKey, 0, 6) . '...' . substr($this->apiKey, -4)) : 'empty',
+            'kavenegar_template' => $this->template,
+            'dev_code_length' => strlen($this->devCode),
+        ]);
     }
 
     /**
-     * Whether to use dev mode (fixed OTP, no SMS). False when APP_ENV=production or OTP_DEV_MODE=false.
+     * Whether to use dev mode (fixed OTP, no SMS). False when APP_ENV=production, OTP_DEV_MODE=false, or request is from production host (weekilaw.com).
      */
     protected function isDevMode(): bool
     {
-        if (config('app.env') === 'production') {
-            return false;
-        }
-        return config('services.kavenegar.otp_dev_mode', true);
+        $appEnv = config('app.env');
+        $otpDevMode = config('services.kavenegar.otp_dev_mode', true);
+        $isProduction = ($appEnv === 'production');
+
+        // Safeguard: if request host is production domain, always use real SMS (so server works even when APP_ENV is wrong)
+        $productionHosts = ['weekilaw.com', 'www.weekilaw.com', 'panel.weekilaw.com'];
+        $host = request()->getHost();
+        $isProductionHost = in_array($host, $productionHosts, true) || str_ends_with($host, '.weekilaw.com');
+
+        $result = ($isProduction || $isProductionHost) ? false : $otpDevMode;
+
+        Log::info('[OTP DEBUG] isDevMode()', [
+            'APP_ENV' => $appEnv,
+            'otp_dev_mode_config' => $otpDevMode,
+            'is_production' => $isProduction,
+            'request_host' => $host,
+            'is_production_host' => $isProductionHost,
+            'result_dev_mode' => $result,
+        ]);
+
+        return $result;
     }
 
     /**
@@ -43,13 +62,17 @@ class OTPService
      */
     public function sendOTP(string $phone, string $otpCode): array
     {
+        Log::info('[OTP DEBUG] sendOTP called', [
+            'phone' => $phone,
+            'otp_code_length' => strlen($otpCode),
+            'otp_code_preview' => strlen($otpCode) >= 2 ? (substr($otpCode, 0, 1) . '***' . substr($otpCode, -1)) : '***',
+        ]);
+
         if ($this->isDevMode()) {
-            Log::debug('[OTP Service] sendOTP called (dev mode, Kavenegar skipped)', [
+            Log::info('[OTP DEBUG] sendOTP → dev mode branch (Kavenegar SKIPPED)', [
                 'phone' => $phone,
-                'otp_code' => $otpCode,
-                'otp_length' => strlen($otpCode),
+                'otp_used' => $otpCode,
             ]);
-            Log::info('[OTP Service] Development mode - use OTP: ' . $otpCode . ' for phone: ' . $phone . ' (SMS not sent)');
             return [
                 'success' => true,
                 'message' => 'کد تایید برای شما ارسال شد',
@@ -59,9 +82,10 @@ class OTPService
         }
 
         try {
+            Log::info('[OTP DEBUG] sendOTP → Kavenegar branch (sending real SMS)');
 
             if (!$this->apiKey) {
-                Log::error('[OTP Service] Kavenegar API key not configured');
+                Log::error('[OTP DEBUG] Kavenegar API key not configured');
                 return [
                     'success' => false,
                     'message' => 'سرویس ارسال پیامک تنظیم نشده است',
@@ -77,6 +101,7 @@ class OTPService
                 // Convert Iranian mobile format (09123456789) to international (+989123456789)
                 $cleanPhone = '+98' . substr($phone, 1);
             } elseif (!preg_match('/^\+989\d{9}$/', $cleanPhone)) {
+                Log::warning('[OTP DEBUG] Invalid phone format', ['phone' => $phone, 'clean' => $cleanPhone]);
                 return [
                     'success' => false,
                     'message' => 'فرمت شماره موبایل نامعتبر است',
@@ -84,11 +109,28 @@ class OTPService
                 ];
             }
 
-            // Kavenegar API call using GET method with query parameters
-            $response = Http::timeout(10)->get('https://api.kavenegar.com/v1/' . $this->apiKey . '/verify/lookup.json', [
+            $apiUrl = 'https://api.kavenegar.com/v1/' . $this->apiKey . '/verify/lookup.json';
+            $params = [
                 'receptor' => $cleanPhone,
                 'token' => $otpCode,
                 'template' => $this->template,
+            ];
+            Log::info('[OTP DEBUG] Kavenegar request', [
+                'url_preview' => 'https://api.kavenegar.com/v1/***/verify/lookup.json',
+                'receptor' => $cleanPhone,
+                'template' => $this->template,
+                'token_length' => strlen($otpCode),
+            ]);
+
+            // Kavenegar API call using GET method with query parameters
+            $response = Http::timeout(10)->get($apiUrl, $params);
+            $statusCode = $response->status();
+            $responseBody = $response->body();
+
+            Log::info('[OTP DEBUG] Kavenegar response', [
+                'http_status' => $statusCode,
+                'body_length' => strlen($responseBody),
+                'body_preview' => strlen($responseBody) > 500 ? substr($responseBody, 0, 500) . '...' : $responseBody,
             ]);
 
             if ($response->successful()) {
@@ -96,14 +138,20 @@ class OTPService
 
                 // Check if the response indicates success
                 if (isset($data['return']) && $data['return']['status'] == 200) {
-                    Log::info('[OTP Service] Kavenegar success for phone: ' . $phone . ' (message ID: ' . ($data['entries'][0]['messageid'] ?? 'unknown') . ')');
+                    Log::info('[OTP DEBUG] Kavenegar success', [
+                        'phone' => $phone,
+                        'message_id' => $data['entries'][0]['messageid'] ?? 'unknown',
+                    ]);
                     return [
                         'success' => true,
                         'message' => 'کد تایید برای شما ارسال شد',
                         'data' => $data
                     ];
                 } else {
-                    Log::error('[OTP Service] Kavenegar API returned error status: ' . json_encode($data));
+                    Log::error('[OTP DEBUG] Kavenegar API error status in body', [
+                        'return' => $data['return'] ?? null,
+                        'full_response' => $data,
+                    ]);
                     return [
                         'success' => false,
                         'message' => 'خطا در ارسال کد تایید. لطفا دوباره تلاش کنید.',
@@ -112,10 +160,10 @@ class OTPService
                     ];
                 }
             } else {
-                $statusCode = $response->status();
-                $responseBody = $response->body();
-
-                Log::error('[OTP Service] Kavenegar HTTP error: Status ' . $statusCode . ', body: ' . $responseBody);
+                Log::error('[OTP DEBUG] Kavenegar HTTP error', [
+                    'http_status' => $statusCode,
+                    'body' => $responseBody,
+                ]);
 
                 // Provide user-friendly error messages based on status codes
                 $userMessage = 'خطا در ارسال کد تایید. لطفا دوباره تلاش کنید.';
@@ -136,7 +184,12 @@ class OTPService
             }
 
         } catch (\Exception $error) {
-            Log::error('[OTP Service] Exception sending OTP: ' . $error->getMessage() . ' (File: ' . $error->getFile() . ':' . $error->getLine() . ')');
+            Log::error('[OTP DEBUG] Exception in sendOTP', [
+                'message' => $error->getMessage(),
+                'file' => $error->getFile(),
+                'line' => $error->getLine(),
+                'trace' => $error->getTraceAsString(),
+            ]);
 
             return [
                 'success' => false,
@@ -153,7 +206,7 @@ class OTPService
     {
         try {
             if ($this->isDevMode()) {
-                Log::info('[OTP Service] Development mode - SMS to: ' . $phone . ' - Message: ' . $message);
+                Log::info('[OTP DEBUG] sendSMS → dev mode (skipped)', ['phone' => $phone]);
                 return [
                     'success' => true,
                     'message' => 'پیامک با موفقیت ارسال شد (حالت توسعه)'
@@ -255,17 +308,19 @@ class OTPService
             if ($devCode === '') {
                 $devCode = '12345';
             }
-            Log::debug('[OTP Service] generateOTP (dev)', ['dev_otp' => $devCode]);
+            Log::info('[OTP DEBUG] generateOTP → dev code', ['dev_otp' => $devCode]);
             return $devCode;
         }
 
         // In production, generate cryptographically secure random 4-digit code
         try {
             $code = random_int(1000, 9999);
-            return str_pad((string) $code, 4, '0', STR_PAD_LEFT);
+            $padded = str_pad((string) $code, 4, '0', STR_PAD_LEFT);
+            Log::info('[OTP DEBUG] generateOTP → random 4-digit', ['length' => 4]);
+            return $padded;
         } catch (\Exception $e) {
             // Fallback if random_int fails (very unlikely)
-            Log::warning('[OTP Service] random_int failed, using mt_rand fallback');
+            Log::warning('[OTP DEBUG] random_int failed, using mt_rand fallback');
             $code = mt_rand(1000, 9999);
             return str_pad((string) $code, 4, '0', STR_PAD_LEFT);
         }

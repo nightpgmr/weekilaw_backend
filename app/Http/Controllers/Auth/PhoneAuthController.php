@@ -87,7 +87,7 @@ class PhoneAuthController extends Controller
     public function verifyOTP(Request $request): JsonResponse
     {
         $otp = $request->input('otp_code') ?? $request->input('otp');
-        Log::debug('[Auth] verifyOTP request', [
+        Log::info('[OTP DEBUG] verifyOTP request', [
             'phone' => $request->input('phone'),
             'otp_code_present' => $request->has('otp_code'),
             'otp_present' => $request->has('otp'),
@@ -160,9 +160,13 @@ class PhoneAuthController extends Controller
         // Generate OTP (in dev: uses OTP_DEV_CODE e.g. 12345, no SMS)
         $otpCode = $this->otpService->generateOTP();
         $expiresAt = Carbon::now()->addMinutes(5);
-        Log::debug('[Auth] sendLoginOTP OTP generated', [
+        Log::info('[OTP DEBUG] sendLoginOTP OTP generated and will be stored (hashed)', [
+            'phone' => $phone,
             'otp_length' => strlen($otpCode),
+            'otp_preview' => strlen($otpCode) >= 2 ? (substr($otpCode, 0, 1) . '***' . substr($otpCode, -1)) : '***',
             'expires_at' => $expiresAt->toIso8601String(),
+            'APP_ENV' => config('app.env'),
+            'OTP_DEV_MODE_config' => config('services.kavenegar.otp_dev_mode'),
         ]);
 
         // Store OTP in temp_otps table (SQL) for verification
@@ -175,13 +179,15 @@ class PhoneAuthController extends Controller
             'created_at' => Carbon::now(),
             'updated_at' => Carbon::now(),
         ]);
-        Log::debug('[Auth] sendLoginOTP OTP stored in temp_otps');
+        Log::info('[OTP DEBUG] sendLoginOTP OTP stored in temp_otps', ['phone' => $phone]);
 
         // Send OTP via SMS (in dev: skipped, returns success + dev_otp)
         $result = $this->otpService->sendOTP($phone, $otpCode);
-        Log::debug('[Auth] sendLoginOTP sendOTP result', [
+        Log::info('[OTP DEBUG] sendLoginOTP sendOTP result', [
             'success' => $result['success'] ?? false,
             'has_dev_otp' => isset($result['dev_otp']),
+            'message' => $result['message'] ?? null,
+            'error' => $result['error'] ?? null,
         ]);
 
         if ($result['success']) {
@@ -244,7 +250,12 @@ class PhoneAuthController extends Controller
         // Generate OTP (in dev: 12345, no SMS)
         $otpCode = $this->otpService->generateOTP();
         $expiresAt = Carbon::now()->addMinutes(5);
-        Log::debug('[Auth] sendRegisterOTP OTP generated', ['otp_length' => strlen($otpCode)]);
+        Log::info('[OTP DEBUG] sendRegisterOTP OTP generated', [
+            'phone' => $phone,
+            'otp_length' => strlen($otpCode),
+            'APP_ENV' => config('app.env'),
+            'OTP_DEV_MODE_config' => config('services.kavenegar.otp_dev_mode'),
+        ]);
 
         // Store OTP in database instead of cache (more reliable)
         \DB::table('temp_otps')->where('expires_at', '<', Carbon::now())->delete();
@@ -256,10 +267,14 @@ class PhoneAuthController extends Controller
             'created_at' => Carbon::now(),
             'updated_at' => Carbon::now(),
         ]);
-        Log::debug('[Auth] sendRegisterOTP OTP stored in temp_otps');
+        Log::info('[OTP DEBUG] sendRegisterOTP OTP stored in temp_otps', ['phone' => $phone]);
 
         // Send OTP via SMS (in dev: skipped, returns success + dev_otp)
         $result = $this->otpService->sendOTP($phone, $otpCode);
+        Log::info('[OTP DEBUG] sendRegisterOTP sendOTP result', [
+            'success' => $result['success'] ?? false,
+            'error' => $result['error'] ?? null,
+        ]);
 
         if ($result['success']) {
             $response = [
@@ -288,7 +303,7 @@ class PhoneAuthController extends Controller
      */
     public function verifyLoginOTP(Request $request): JsonResponse
     {
-        Log::debug('[Auth] verifyLoginOTP start', [
+        Log::info('[OTP DEBUG] verifyLoginOTP start', [
             'phone' => $request->input('phone'),
             'otp_length' => strlen((string) ($request->input('otp') ?? '')),
         ]);
@@ -328,8 +343,15 @@ class PhoneAuthController extends Controller
             ->where('expires_at', '>', Carbon::now())
             ->first();
 
+        Log::info('[OTP DEBUG] verifyLoginOTP temp_otps lookup', [
+            'phone' => $phone,
+            'record_found' => $otpRecord !== null,
+            'expires_at' => $otpRecord->expires_at ?? null,
+            'now' => Carbon::now()->toIso8601String(),
+        ]);
+
         if (!$otpRecord) {
-            Log::debug('[Auth] verifyLoginOTP OTP expired or not found', ['phone' => $phone]);
+            Log::info('[OTP DEBUG] verifyLoginOTP FAIL: no record or expired', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید منقضی شده است',
@@ -337,18 +359,22 @@ class PhoneAuthController extends Controller
         }
 
         // Verify OTP
-        if (!Hash::check($otp, $otpRecord->otp)) {
-            Log::debug('[Auth] verifyLoginOTP OTP mismatch', [
-                'user_id' => $mongoUser['_id'] ?? null,
-                'phone' => $phone,
-            ]);
+        $hashCheck = Hash::check($otp, $otpRecord->otp);
+        Log::info('[OTP DEBUG] verifyLoginOTP Hash::check', [
+            'phone' => $phone,
+            'hash_check_result' => $hashCheck,
+            'submitted_otp_length' => strlen($otp),
+        ]);
+
+        if (!$hashCheck) {
+            Log::info('[OTP DEBUG] verifyLoginOTP FAIL: wrong code', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید اشتباه است',
             ], 422);
         }
 
-        Log::debug('[Auth] verifyLoginOTP OTP valid, creating token');
+        Log::info('[OTP DEBUG] verifyLoginOTP OTP valid, creating token');
 
         // Clear OTP record
         \DB::table('temp_otps')->where('id', $otpRecord->id)->delete();
@@ -438,7 +464,13 @@ class PhoneAuthController extends Controller
             ->where('expires_at', '>', Carbon::now())
             ->first();
 
+        Log::info('[OTP DEBUG] completeRegistration temp_otps lookup', [
+            'phone' => $phone,
+            'record_found' => $otpRecord !== null,
+        ]);
+
         if (!$otpRecord) {
+            Log::info('[OTP DEBUG] completeRegistration FAIL: no OTP record or expired', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید منقضی شده است یا یافت نشد. لطفا دوباره درخواست دهید.',
@@ -446,7 +478,10 @@ class PhoneAuthController extends Controller
         }
 
         // Verify OTP
-        if (!Hash::check($otp, $otpRecord->otp)) {
+        $hashCheck = Hash::check($otp, $otpRecord->otp);
+        Log::info('[OTP DEBUG] completeRegistration Hash::check', ['result' => $hashCheck, 'phone' => $phone]);
+        if (!$hashCheck) {
+            Log::info('[OTP DEBUG] completeRegistration FAIL: wrong code', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید اشتباه است',
