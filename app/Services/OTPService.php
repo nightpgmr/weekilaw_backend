@@ -28,13 +28,22 @@ class OTPService
     }
 
     /**
+     * Whether to use dev mode (fixed OTP, no SMS). False when APP_ENV=production or OTP_DEV_MODE=false.
+     */
+    protected function isDevMode(): bool
+    {
+        if (config('app.env') === 'production') {
+            return false;
+        }
+        return config('services.kavenegar.otp_dev_mode', true);
+    }
+
+    /**
      * Send OTP code via SMS
      */
     public function sendOTP(string $phone, string $otpCode): array
     {
-        $isDev = config('app.env') !== 'production';
-
-        if ($isDev) {
+        if ($this->isDevMode()) {
             Log::debug('[OTP Service] sendOTP called (dev mode, Kavenegar skipped)', [
                 'phone' => $phone,
                 'otp_code' => $otpCode,
@@ -143,9 +152,7 @@ class OTPService
     public function sendSMS(string $phone, string $message): array
     {
         try {
-            $isDev = config('app.env') !== 'production';
-
-            if ($isDev) {
+            if ($this->isDevMode()) {
                 Log::info('[OTP Service] Development mode - SMS to: ' . $phone . ' - Message: ' . $message);
                 return [
                     'success' => true,
@@ -240,9 +247,7 @@ class OTPService
      */
     public function generateOTP(): string
     {
-        $isDev = config('app.env') !== 'production';
-
-        if ($isDev) {
+        if ($this->isDevMode()) {
             // In development, use OTP_DEV_CODE exactly (e.g. 12345) - no SMS sent
             $devCode = $this->devCode ?: '12345';
             // Allow 4–6 digits for dev (e.g. 1234, 12345)

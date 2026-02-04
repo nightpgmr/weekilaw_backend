@@ -39,6 +39,8 @@ return [
         'api_key' => env('KAVENEGAR_API_KEY'),
         'template' => env('KAVENEGAR_TEMPLATE', 'weekilaw'),
         'dev_code' => env('OTP_DEV_CODE', '12345'),
+        // When false: always use Kavenegar SMS (even if APP_ENV is not production). Set to false on server.
+        'otp_dev_mode' => filter_var(env('OTP_DEV_MODE', 'true'), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'google' => [
