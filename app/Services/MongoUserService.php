@@ -93,22 +93,38 @@ class MongoUserService
 
     /**
      * Find user by phone number
+     * Tries exact match then alternate formats (0938..., 938..., +989...).
      * Returns user document or null
      */
     public function findUserByPhone(string $phone): ?array
     {
-        Log::debug('[MongoUserService] findUserByPhone called', ['phone' => $phone]);
-        
+        $uri = config('mongodb.uri');
+        Log::debug('[MongoUserService] findUserByPhone called', [
+            'phone' => $phone,
+            'uri_length' => strlen($uri ?? ''),
+            'database' => $this->database,
+            'collection' => $this->collectionName,
+        ]);
+
+        $variants = $this->phoneQueryVariants($phone);
+        $user = null;
+
         try {
-            Log::debug('[MongoUserService] Executing findOne query', [
-                'phone' => $phone,
-                'collection' => $this->collectionName,
-                'database' => $this->database,
-            ]);
-            
-            $user = $this->collection->findOne([
-                'phone' => $phone,
-            ]);
+            foreach ($variants as $variant) {
+                Log::debug('[MongoUserService] Executing findOne query', [
+                    'phone_variant' => $variant,
+                    'collection' => $this->collectionName,
+                    'database' => $this->database,
+                ]);
+
+                $user = $this->collection->findOne([
+                    'phone' => $variant,
+                ]);
+
+                if ($user) {
+                    break;
+                }
+            }
 
             Log::debug('[MongoUserService] Query executed', [
                 'user_found' => $user !== null,
@@ -142,7 +158,9 @@ class MongoUserService
 
             Log::debug('[MongoUserService] User not found', [
                 'phone' => $phone,
+                'tried_variants' => $variants,
                 'collection' => $this->collectionName,
+                'uri_length' => strlen($uri ?? ''),
             ]);
 
             return null;
@@ -157,6 +175,26 @@ class MongoUserService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Return phone number variants for lookup (exact, 0-prefix, digits only, +98).
+     */
+    protected function phoneQueryVariants(string $phone): array
+    {
+        $digits = preg_replace('/\D/', '', $phone);
+        $variants = [$phone];
+        if (strlen($digits) === 10 && str_starts_with($digits, '9')) {
+            $variants[] = '0' . $digits;      // 09380587367
+            $variants[] = $digits;            // 9380587367
+            $variants[] = '+98' . $digits;    // +989380587367
+        } elseif (strlen($digits) === 12 && (str_starts_with($digits, '98') || str_starts_with($digits, '0098'))) {
+            $nine = preg_replace('/^0?0?98/', '', $digits);
+            $variants[] = '0' . $nine;
+            $variants[] = $nine;
+            $variants[] = '+98' . $nine;
+        }
+        return array_values(array_unique(array_filter($variants)));
     }
 
     /**
