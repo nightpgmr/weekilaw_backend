@@ -5,21 +5,96 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\OTPService;
+use App\Services\MongoUserService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Throwable;
 
 class PhoneAuthController extends Controller
 {
     protected OTPService $otpService;
+    protected MongoUserService $mongoUserService;
 
-    public function __construct(OTPService $otpService)
+    public function __construct(OTPService $otpService, MongoUserService $mongoUserService)
     {
         $this->otpService = $otpService;
+        $this->mongoUserService = $mongoUserService;
+    }
+
+    /**
+     * Unified send OTP (used by frontend auth/sign-in).
+     * For sign-in flow: sends login OTP. Accepts optional type=register for sign-up.
+     */
+    public function sendOTP(Request $request): JsonResponse
+    {
+        Log::debug('[Auth] sendOTP request received', [
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+            'type' => $request->input('type'),
+            'phone' => $request->input('phone'),
+            'env' => config('app.env'),
+            'all_input' => $request->all(),
+        ]);
+        
+        try {
+            Log::debug('[Auth] sendOTP checking MongoDB service availability');
+            $mongoAvailable = class_exists(\App\Services\MongoUserService::class);
+            Log::debug('[Auth] sendOTP MongoDB service available', ['available' => $mongoAvailable]);
+            
+            $type = $request->input('type', 'login');
+            Log::debug('[Auth] sendOTP type determined', ['type' => $type]);
+            
+            if ($type === 'register') {
+                Log::debug('[Auth] sendOTP → sendRegisterOTP');
+                return $this->sendRegisterOTP($request);
+            }
+            
+            Log::debug('[Auth] sendOTP → sendLoginOTP');
+            return $this->sendLoginOTP($request);
+        } catch (Throwable $e) {
+            Log::error('[Auth] sendOTP exception caught', [
+                'message' => $e->getMessage(),
+                'class' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'code' => $e->getCode(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
+            // In dev, always show the real error so you can fix DB/driver issues
+            $message = (config('app.debug') || config('app.env') !== 'production')
+                ? $e->getMessage() . ' (Class: ' . get_class($e) . ')'
+                : 'خطا در ارسال کد تایید. لطفا دوباره تلاش کنید.';
+            
+            return response()->json([
+                'success' => false,
+                'message' => $message,
+                'error_class' => get_class($e),
+            ], 500);
+        }
+    }
+
+    /**
+     * Unified verify OTP (used by frontend auth/sign-in).
+     * Accepts phone + otp_code (or otp) and returns token + user.
+     */
+    public function verifyOTP(Request $request): JsonResponse
+    {
+        $otp = $request->input('otp_code') ?? $request->input('otp');
+        Log::debug('[Auth] verifyOTP request', [
+            'phone' => $request->input('phone'),
+            'otp_code_present' => $request->has('otp_code'),
+            'otp_present' => $request->has('otp'),
+            'otp_length' => $otp ? strlen($otp) : 0,
+        ]);
+        $request->merge(['otp' => $otp]);
+        return $this->verifyLoginOTP($request);
     }
 
     /**
@@ -27,11 +102,14 @@ class PhoneAuthController extends Controller
      */
     public function sendLoginOTP(Request $request): JsonResponse
     {
+        Log::debug('[Auth] sendLoginOTP start', ['body' => $request->all()]);
+
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string|regex:/^09\d{9}$/',
         ]);
 
         if ($validator->fails()) {
+            Log::debug('[Auth] sendLoginOTP validation failed', ['errors' => $validator->errors()->toArray()]);
             return response()->json([
                 'success' => false,
                 'message' => 'شماره موبایل نامعتبر است',
@@ -40,32 +118,71 @@ class PhoneAuthController extends Controller
         }
 
         $phone = $request->input('phone');
+        Log::debug('[Auth] sendLoginOTP phone validated', ['phone' => $phone]);
 
-        // Check if user exists with this phone and has completed registration
-        $user = User::where('phone', $phone)
-            ->whereNotNull('name')
-            ->where('name', '!=', 'کاربر جدید')
-            ->first();
+        // Check if user exists in MongoDB (shared with Node.js backend)
+        Log::debug('[Auth] sendLoginOTP checking MongoDB for user', [
+            'phone' => $phone,
+            'mongo_service_class' => get_class($this->mongoUserService),
+            'mongodb_extension_loaded' => extension_loaded('mongodb'),
+        ]);
+        
+        try {
+            // Check if user exists in MongoDB (any user, regardless of registration status)
+            $mongoUser = $this->mongoUserService->findUserByPhone($phone);
+            Log::debug('[Auth] sendLoginOTP MongoDB lookup completed', [
+                'user_found' => $mongoUser !== null,
+                'user_id' => $mongoUser['_id'] ?? null,
+                'user_name' => $mongoUser['full_name'] ?? $mongoUser['name'] ?? null,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('[Auth] sendLoginOTP MongoDB lookup failed', [
+                'phone' => $phone,
+                'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'mongodb_extension_loaded' => extension_loaded('mongodb'),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
 
-        if (!$user) {
+        if (!$mongoUser) {
+            // User must exist in MongoDB cloud database - don't send OTP if not found
+            Log::debug('[Auth] sendLoginOTP user not found in MongoDB', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کاربری با این شماره موبایل یافت نشد. لطفا ابتدا ثبت نام کنید.',
             ], 404);
         }
 
-        // Generate OTP
+        // Generate OTP (in dev: uses OTP_DEV_CODE e.g. 12345, no SMS)
         $otpCode = $this->otpService->generateOTP();
         $expiresAt = Carbon::now()->addMinutes(5);
-
-        // Save OTP to user
-        $user->update([
-            'otp_code' => Hash::make($otpCode),
-            'otp_expires_at' => $expiresAt,
+        Log::debug('[Auth] sendLoginOTP OTP generated', [
+            'otp_length' => strlen($otpCode),
+            'expires_at' => $expiresAt->toIso8601String(),
         ]);
 
-        // Send OTP via SMS
+        // Store OTP in temp_otps table (SQL) for verification
+        \DB::table('temp_otps')->where('expires_at', '<', Carbon::now())->delete();
+        \DB::table('temp_otps')->insert([
+            'phone' => $phone,
+            'otp' => Hash::make($otpCode),
+            'expires_at' => $expiresAt,
+            'type' => 'login',
+            'created_at' => Carbon::now(),
+            'updated_at' => Carbon::now(),
+        ]);
+        Log::debug('[Auth] sendLoginOTP OTP stored in temp_otps');
+
+        // Send OTP via SMS (in dev: skipped, returns success + dev_otp)
         $result = $this->otpService->sendOTP($phone, $otpCode);
+        Log::debug('[Auth] sendLoginOTP sendOTP result', [
+            'success' => $result['success'] ?? false,
+            'has_dev_otp' => isset($result['dev_otp']),
+        ]);
 
         if ($result['success']) {
             $response = [
@@ -74,13 +191,16 @@ class PhoneAuthController extends Controller
                 'expires_in' => 300, // 5 minutes
             ];
 
-            // In development mode, include the OTP for testing
+            // In development mode, include the OTP for testing (e.g. 12345)
             if (config('app.env') !== 'production' && isset($result['dev_otp'])) {
                 $response['dev_otp'] = $result['dev_otp'];
+                $response['code'] = $result['dev_otp']; // Frontend may look for 'code'
+                Log::info('[Auth] sendLoginOTP dev response includes OTP', ['dev_otp' => $result['dev_otp']]);
             }
 
             return response()->json($response);
         } else {
+            Log::warning('[Auth] sendLoginOTP send failed', ['error' => $result['error'] ?? 'unknown']);
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در ارسال کد تایید',
@@ -94,11 +214,14 @@ class PhoneAuthController extends Controller
      */
     public function sendRegisterOTP(Request $request): JsonResponse
     {
+        Log::debug('[Auth] sendRegisterOTP start', ['body' => $request->all()]);
+
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string|regex:/^09\d{9}$/',
         ]);
 
         if ($validator->fails()) {
+            Log::debug('[Auth] sendRegisterOTP validation failed', ['errors' => $validator->errors()->toArray()]);
             return response()->json([
                 'success' => false,
                 'message' => 'شماره موبایل نامعتبر است',
@@ -111,21 +234,20 @@ class PhoneAuthController extends Controller
         // Check if user already exists and is fully registered (has a proper name)
         $existingUser = User::where('phone', $phone)->first();
         if ($existingUser && $existingUser->name !== 'کاربر جدید' && $existingUser->name !== null) {
+            Log::debug('[Auth] sendRegisterOTP phone already registered', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'این شماره موبایل قبلاً ثبت شده است. لطفا وارد شوید.',
             ], 422);
         }
 
-        // Generate OTP
+        // Generate OTP (in dev: 12345, no SMS)
         $otpCode = $this->otpService->generateOTP();
         $expiresAt = Carbon::now()->addMinutes(5);
+        Log::debug('[Auth] sendRegisterOTP OTP generated', ['otp_length' => strlen($otpCode)]);
 
         // Store OTP in database instead of cache (more reliable)
-        // First, clean up any expired OTPs
         \DB::table('temp_otps')->where('expires_at', '<', Carbon::now())->delete();
-
-        // Store new OTP
         \DB::table('temp_otps')->insert([
             'phone' => $phone,
             'otp' => Hash::make($otpCode),
@@ -134,27 +256,25 @@ class PhoneAuthController extends Controller
             'created_at' => Carbon::now(),
             'updated_at' => Carbon::now(),
         ]);
+        Log::debug('[Auth] sendRegisterOTP OTP stored in temp_otps');
 
-        // If user doesn't exist, we'll create them during completeRegistration
-        // If they exist but haven't completed registration, we'll update them
-
-        // Send OTP via SMS
+        // Send OTP via SMS (in dev: skipped, returns success + dev_otp)
         $result = $this->otpService->sendOTP($phone, $otpCode);
 
         if ($result['success']) {
             $response = [
                 'success' => true,
                 'message' => 'کد تایید به شماره موبایل شما ارسال شد',
-                'expires_in' => 300, // 5 minutes
+                'expires_in' => 300,
             ];
-
-            // In development mode, include the OTP for testing
             if (config('app.env') !== 'production' && isset($result['dev_otp'])) {
                 $response['dev_otp'] = $result['dev_otp'];
+                $response['code'] = $result['dev_otp'];
+                Log::info('[Auth] sendRegisterOTP dev response includes OTP', ['dev_otp' => $result['dev_otp']]);
             }
-
             return response()->json($response);
         } else {
+            Log::warning('[Auth] sendRegisterOTP send failed', ['error' => $result['error'] ?? 'unknown']);
             return response()->json([
                 'success' => false,
                 'message' => 'خطا در ارسال کد تایید',
@@ -168,12 +288,18 @@ class PhoneAuthController extends Controller
      */
     public function verifyLoginOTP(Request $request): JsonResponse
     {
+        Log::debug('[Auth] verifyLoginOTP start', [
+            'phone' => $request->input('phone'),
+            'otp_length' => strlen((string) ($request->input('otp') ?? '')),
+        ]);
+
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string|regex:/^09\d{9}$/',
             'otp' => 'required|string|regex:/^\d{4,6}$/',
         ]);
 
         if ($validator->fails()) {
+            Log::debug('[Auth] verifyLoginOTP validation failed', ['errors' => $validator->errors()->toArray()]);
             return response()->json([
                 'success' => false,
                 'message' => 'اطلاعات وارد شده نامعتبر است',
@@ -184,17 +310,26 @@ class PhoneAuthController extends Controller
         $phone = $request->input('phone');
         $otp = $request->input('otp');
 
-        $user = User::where('phone', $phone)->first();
+        // Get user from MongoDB (shared with Node.js backend)
+        $mongoUser = $this->mongoUserService->findUserByPhone($phone);
 
-        if (!$user) {
+        if (!$mongoUser) {
+            Log::debug('[Auth] verifyLoginOTP user not found in MongoDB', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کاربری با این شماره موبایل یافت نشد',
             ], 404);
         }
 
-        // Check if OTP is expired
-        if ($user->otp_expires_at && $user->otp_expires_at->isPast()) {
+        // Get OTP from temp_otps table (SQL)
+        $otpRecord = \DB::table('temp_otps')
+            ->where('phone', $phone)
+            ->where('type', 'login')
+            ->where('expires_at', '>', Carbon::now())
+            ->first();
+
+        if (!$otpRecord) {
+            Log::debug('[Auth] verifyLoginOTP OTP expired or not found', ['phone' => $phone]);
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید منقضی شده است',
@@ -202,33 +337,74 @@ class PhoneAuthController extends Controller
         }
 
         // Verify OTP
-        if (!$user->otp_code || !Hash::check($otp, $user->otp_code)) {
+        if (!Hash::check($otp, $otpRecord->otp)) {
+            Log::debug('[Auth] verifyLoginOTP OTP mismatch', [
+                'user_id' => $mongoUser['_id'] ?? null,
+                'phone' => $phone,
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'کد تایید اشتباه است',
             ], 422);
         }
 
-        // Clear OTP and mark phone as verified
-        $user->update([
-            'otp_code' => null,
-            'otp_expires_at' => null,
+        Log::debug('[Auth] verifyLoginOTP OTP valid, creating token');
+
+        // Clear OTP record
+        \DB::table('temp_otps')->where('id', $otpRecord->id)->delete();
+
+        // Create or get a local User model for Sanctum token (we need Eloquent model for Sanctum)
+        // Use MongoDB _id as identifier, or create a mapping
+        $localUser = User::firstOrCreate(
+            ['phone' => $phone],
+            [
+                'name' => $mongoUser['name'] ?? 'کاربر',
+                'email' => $mongoUser['email'] ?? 'user-' . $phone . '@mongodb.local',
+                'password' => Hash::make(Str::random(32)),
+                'auth_provider' => 'phone',
+                'phone_verified_at' => Carbon::now(),
+            ]
+        );
+
+        // Update local user with latest MongoDB data
+        // MongoDB uses 'full_name', but check both for compatibility
+        $mongoUserName = $mongoUser['full_name'] ?? $mongoUser['name'] ?? null;
+        $localUser->update([
+            'name' => $mongoUserName ?? $localUser->name,
             'phone_verified_at' => Carbon::now(),
         ]);
 
-        // Create Sanctum token for API access
-        $token = $user->createToken('auth-token')->plainTextToken;
+        // Create Sanctum tokens (access_token and refresh_token)
+        $accessToken = $localUser->createToken('access-token', ['*'], now()->addHours(24))->plainTextToken;
+        $refreshToken = $localUser->createToken('refresh-token', ['refresh'], now()->addDays(30))->plainTextToken;
 
+        // Prepare user data matching Node.js format
+        // MongoDB uses 'full_name', but check both for compatibility
+        $userName = $mongoUser['full_name'] ?? $mongoUser['name'] ?? $localUser->name;
+        $userData = [
+            'id' => $mongoUser['_id'] ?? (string) $localUser->id,
+            'name' => $userName,
+            'full_name' => $mongoUser['full_name'] ?? null,
+            'phone' => $mongoUser['phone'] ?? $phone,
+            'email' => $mongoUser['email'] ?? $localUser->email,
+            'role' => $mongoUser['role'] ?? $localUser->role ?? 'user',
+        ];
+
+        Log::info('[Auth] verifyLoginOTP success', [
+            'user_id' => $userData['id'],
+            'phone' => $phone,
+        ]);
+
+        // Return response matching Node.js backend format
         return response()->json([
             'success' => true,
             'message' => 'ورود با موفقیت انجام شد',
-            'token' => $token,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'phone' => $user->phone,
-                'role' => $user->role,
-            ],
+            'access_token' => $accessToken,
+            'auth_token' => $accessToken, // Backward compatibility
+            'refresh_token' => $refreshToken,
+            'token' => $accessToken, // Legacy support
+            'user' => $userData,
+            'user_data' => $userData, // Frontend expects this key
         ]);
     }
 

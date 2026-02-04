@@ -16,7 +16,9 @@
         "laravel/sanctum": "^4.2",
         "laravel/socialite": "^5.24",
         "laravel/tinker": "^2.10.1",
-        "laravel/wayfinder": "^0.1.9"
+        "laravel/wayfinder": "^0.1.9",
+        "mongodb/laravel-mongodb": "^5.5",
+        "mongodb/mongodb": "^1.19"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -81,6 +83,12 @@
         ],
         "pre-package-uninstall": [
             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+        ],
+        "mongodb:install": [
+            "@php artisan mongodb:install"
+        ],
+        "mongodb:check": [
+            "@php artisan mongodb:check"
         ]
     },
     "extra": {

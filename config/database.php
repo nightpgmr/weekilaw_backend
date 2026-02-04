@@ -2,6 +2,26 @@
 
 use Illuminate\Support\Str;
 
+// PHP 8.5+ deprecated PDO::MYSQL_ATTR_SSL_CA in favor of Pdo\Mysql::ATTR_SSL_CA
+$pdoMysqlSslCa = null;
+if (extension_loaded('pdo_mysql') && class_exists('PDO')) {
+    // Try PHP 8.5+ constant first (Pdo\Mysql::ATTR_SSL_CA)
+    if (class_exists('Pdo\Mysql')) {
+        $reflection = new \ReflectionClass('Pdo\Mysql');
+        if ($reflection->hasConstant('ATTR_SSL_CA')) {
+            $pdoMysqlSslCa = \Pdo\Mysql::ATTR_SSL_CA;
+        }
+    }
+    
+    // Fall back to PDO::MYSQL_ATTR_SSL_CA if new constant not available
+    if ($pdoMysqlSslCa === null) {
+        $reflection = new \ReflectionClass('PDO');
+        if ($reflection->hasConstant('MYSQL_ATTR_SSL_CA')) {
+            $pdoMysqlSslCa = PDO::MYSQL_ATTR_SSL_CA;
+        }
+    }
+}
+
 return [
 
     /*
@@ -58,8 +78,8 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            'options' => extension_loaded('pdo_mysql') && $pdoMysqlSslCa !== null ? array_filter([
+                $pdoMysqlSslCa => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
         ],
 
@@ -78,8 +98,8 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+            'options' => extension_loaded('pdo_mysql') && $pdoMysqlSslCa !== null ? array_filter([
+                $pdoMysqlSslCa => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
         ],
 

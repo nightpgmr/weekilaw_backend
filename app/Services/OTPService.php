@@ -15,7 +15,16 @@ class OTPService
     {
         $this->apiKey = config('services.kavenegar.api_key');
         $this->template = config('services.kavenegar.template', 'liantemp');
-        $this->devCode = config('services.kavenegar.dev_code', '12345');
+        $this->devCode = (string) (config('services.kavenegar.dev_code') ?? env('OTP_DEV_CODE', '12345'));
+
+        if (config('app.env') !== 'production') {
+            Log::debug('[OTP Service] Initialized', [
+                'env' => config('app.env'),
+                'dev_code_set' => !empty($this->devCode),
+                'dev_code_length' => strlen($this->devCode),
+                'kavenegar_configured' => !empty($this->apiKey),
+            ]);
+        }
     }
 
     /**
@@ -23,18 +32,24 @@ class OTPService
      */
     public function sendOTP(string $phone, string $otpCode): array
     {
-        try {
-            $isDev = config('app.env') !== 'production';
+        $isDev = config('app.env') !== 'production';
 
-            if ($isDev) {
-                Log::info('[OTP Service] Development mode - OTP: ' . $otpCode . ' for phone: ' . $phone);
-                return [
-                    'success' => true,
-                    'message' => 'کد تایید برای شما ارسال شد',
-                    'code' => $otpCode,
-                    'dev_otp' => $otpCode, // Include OTP for development
-                ];
-            }
+        if ($isDev) {
+            Log::debug('[OTP Service] sendOTP called (dev mode, Kavenegar skipped)', [
+                'phone' => $phone,
+                'otp_code' => $otpCode,
+                'otp_length' => strlen($otpCode),
+            ]);
+            Log::info('[OTP Service] Development mode - use OTP: ' . $otpCode . ' for phone: ' . $phone . ' (SMS not sent)');
+            return [
+                'success' => true,
+                'message' => 'کد تایید برای شما ارسال شد',
+                'code' => $otpCode,
+                'dev_otp' => $otpCode, // Frontend can show this in dev
+            ];
+        }
+
+        try {
 
             if (!$this->apiKey) {
                 Log::error('[OTP Service] Kavenegar API key not configured');
@@ -228,14 +243,14 @@ class OTPService
         $isDev = config('app.env') !== 'production';
 
         if ($isDev) {
-            // In development, use the configured dev code or a default
-            $devCode = $this->devCode ?: '1234';
-
-            // Ensure it's exactly 4 digits
-            if (strlen($devCode) !== 4) {
-                $devCode = str_pad($devCode, 4, '0', STR_PAD_LEFT);
+            // In development, use OTP_DEV_CODE exactly (e.g. 12345) - no SMS sent
+            $devCode = $this->devCode ?: '12345';
+            // Allow 4–6 digits for dev (e.g. 1234, 12345)
+            $devCode = preg_replace('/\D/', '', $devCode);
+            if ($devCode === '') {
+                $devCode = '12345';
             }
-
+            Log::debug('[OTP Service] generateOTP (dev)', ['dev_otp' => $devCode]);
             return $devCode;
         }
 
@@ -252,10 +267,10 @@ class OTPService
     }
 
     /**
-     * Validate OTP code format
+     * Validate OTP code format (4–6 digits for dev 5-digit codes like 12345)
      */
     public function validateOTPFormat(string $otp): bool
     {
-        return preg_match('/^\d{4}$/', $otp) === 1;
+        return preg_match('/^\d{4,6}$/', $otp) === 1;
     }
 }

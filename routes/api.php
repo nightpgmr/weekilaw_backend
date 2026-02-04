@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\LawyerSearchController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WalletController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\CacheController;
 use App\Http\Controllers\Auth\PhoneAuthController;
 use App\Http\Controllers\Auth\GoogleAuthController;
 
@@ -56,7 +58,13 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('api.chats.delete');
 });
 
-// Phone Authentication Routes
+// Unified auth routes (used by frontend sign-in/sign-up)
+Route::post('/auth/send-otp', [PhoneAuthController::class, 'sendOTP'])
+    ->name('auth.send-otp');
+Route::post('/auth/verify-otp', [PhoneAuthController::class, 'verifyOTP'])
+    ->name('auth.verify-otp');
+
+// Phone Authentication Routes (legacy)
 Route::prefix('auth/phone')->group(function () {
     Route::post('/send-login-otp', [PhoneAuthController::class, 'sendLoginOTP'])
         ->name('auth.phone.send-login-otp');
@@ -83,6 +91,12 @@ Route::prefix('auth/google')->group(function () {
         ->name('auth.google.callback');
 });
 
+// Auth Profile Route (used by frontend)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/auth/profile', [UserController::class, 'getProfile'])
+        ->name('api.auth.profile');
+});
+
 // User Profile Routes (Protected)
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/profile', [UserController::class, 'getProfile'])
@@ -95,14 +109,63 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('api.user.delete-account');
 });
 
-// Wallet Routes
+// Payment Routes (Public)
+// Gateway POSTs to /api/payment/listener (backend route)
+// Backend receives POST, returns HTML page with JavaScript that verifies payment
+// JavaScript verifies payment via /api/payment/verify-callback and sends postMessage to opener
+
+// Payment listener route (receives POST from gateway, returns HTML page, no auth required)
+Route::post('/payment/listener', [PaymentController::class, 'listener'])
+    ->name('api.payment.listener');
+
+// Payment listener route (Node.js compatible path - same as weekila-server-iran)
+Route::post('/payment/payment-listener', [PaymentController::class, 'listener'])
+    ->name('api.payment.payment-listener');
+
+// Gateway redirect route (generates payment form HTML from token, no auth required)
+Route::get('/payment/gateway-redirect', [PaymentController::class, 'gatewayRedirect'])
+    ->name('api.payment.gateway-redirect');
+
+// Payment verify callback route (called by listener HTML JavaScript, no auth required)
+Route::post('/payment/verify-callback', [PaymentController::class, 'verifyCallback'])
+    ->name('api.payment.verify-callback');
+
+// Payment Routes (Protected)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/payment/gateways', [PaymentController::class, 'getGateways'])
+        ->name('api.payment.gateways');
+    
+    Route::get('/payment/coin-packages', [PaymentController::class, 'getCoinPackages'])
+        ->name('api.payment.coin-packages');
+    
+    Route::post('/payment/initiate', [PaymentController::class, 'initiate'])
+        ->name('api.payment.initiate');
+});
+
+// Payment verify route (called by listener page, no auth required)
+Route::post('/payment/verify', [PaymentController::class, 'verify'])
+    ->name('api.payment.verify');
+
+// Cache Control Routes (Admin/Backend)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/cache/stats', [CacheController::class, 'stats'])
+        ->name('api.cache.stats');
+    
+    Route::post('/cache/invalidate', [CacheController::class, 'invalidate'])
+        ->name('api.cache.invalidate');
+    
+    Route::post('/cache/clear', [CacheController::class, 'clear'])
+        ->name('api.cache.clear');
+});
+
+// Wallet Routes (Legacy - kept for backward compatibility)
 // SEP Bank sends callback as POST with form data
 Route::post('/wallet/callback', [WalletController::class, 'callback'])
     ->name('api.wallet.callback');
 
 // SEP Payment callback - same path as Node.js server (registered in SEP panel)
 Route::post('/payment/payment-listener', [WalletController::class, 'callback'])
-    ->name('api.payment.listener');
+    ->name('api.payment.listener.legacy');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/wallet/balance', [WalletController::class, 'getBalance'])

@@ -38,7 +38,7 @@ return [
     'kavenegar' => [
         'api_key' => env('KAVENEGAR_API_KEY'),
         'template' => env('KAVENEGAR_TEMPLATE', 'weekilaw'),
-        'dev_code' => env('OTP_DEV_CODE', '1234'),
+        'dev_code' => env('OTP_DEV_CODE', '12345'),
     ],
 
     'google' => [
@@ -50,7 +50,10 @@ return [
     'sep' => [
         'terminal_id' => env('SEP_TERMINAL_ID'),
         'merchant_id' => env('SEP_MERCHANT_ID'),
-        'sandbox' => env('SEP_SANDBOX', true),
+        'callback_url' => env('SEP_CALLBACK_URL', 'https://weekilaw.com/api/payment/payment-listener'), // Publicly accessible callback URL
+        'base_url' => env('SEP_BASE_URL', 'https://weekilaw.com'), // Base URL for payment gateway redirects
+        'verify_url' => env('SEP_VERIFY_URL', 'https://weekilaw.com/api/payment/verify-callback'), // Verify callback URL
+        'web_app_url' => env('SEP_WEB_APP_URL', 'https://weekilaw.com'), // Web app URL for redirects
     ],
 
 ];
